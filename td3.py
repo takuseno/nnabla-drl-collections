@@ -267,7 +267,8 @@ def main(args):
     buffer = ReplayBuffer(args.buffer_size, args.batch_size)
 
     # set log directory
-    logdir = os.path.join('logs', args.logdir)
+    date = datetime.now().strftime('%Y%m%d%H%M%S')
+    logdir = os.path.join('logs', args.logdir + '_' + date)
     if os.path.exists(logdir):
         os.makedirs(logdir)
 
@@ -276,11 +277,10 @@ def main(args):
 
 
 if __name__ == '__main__':
-    date = datetime.now().strftime('%Y%m%d%H%M%S')
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--device', type=int, default=0)
-    parser.add_argument('--logdir', type=str, default=date)
+    parser.add_argument('--logdir', type=str, default='td3')
     parser.add_argument('--env', type=str, default='Pendulum-v0')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--batch-size', type=int, default=100)

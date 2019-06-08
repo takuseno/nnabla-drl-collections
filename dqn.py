@@ -285,7 +285,7 @@ if __name__ == '__main__':
     parser.add_argument('--buffer-size', type=int, default=10 ** 5)
     parser.add_argument('--epsilon', type=int, default=1.0)
     parser.add_argument('--schedule_duration', type=int, default=10 ** 6)
-    parser.add_argument('--logdir', type=str, default='experiment')
+    parser.add_argument('--logdir', type=str, default='dqn')
     parser.add_argument('--load', type=str)
     parser.add_argument('--device', type=int, default='0')
     parser.add_argument('--gpu', action='store_true')
