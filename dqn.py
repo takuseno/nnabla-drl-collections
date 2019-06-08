@@ -190,13 +190,14 @@ def train(model, buffer):
         rewards_tp1.append(experience['reward_tp1'])
         obs_tp1.append(experience['obs_tp1'])
         dones_tp1.append(experience['done_tp1'])
-    model.train(pixel_to_float(obs_t), actions_t, rewards_tp1,
-                pixel_to_float(obs_tp1), dones_tp1)
+    return model.train(pixel_to_float(obs_t), actions_t, rewards_tp1,
+                       pixel_to_float(obs_tp1), dones_tp1)
 
 
 def train_loop(env, model, buffer, exploration, logdir):
     monitor = Monitor(logdir)
     reward_monitor = MonitorSeries('reward', monitor, interval=1)
+    loss_monitor = MonitorSeries('loss', monitor, interval=1)
     # copy parameters to target network
     model.update_target()
 
@@ -225,7 +226,8 @@ def train_loop(env, model, buffer, exploration, logdir):
 
             # update parameters
             if step > 10000 and step % 4 == 0:
-                train(model, buffer)
+                loss = train(model, buffer)
+                loss_monitor.add(step, loss)
 
             # synchronize target parameters with the latest parameters
             if step % 10000 == 0:
