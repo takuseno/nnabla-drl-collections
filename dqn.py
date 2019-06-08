@@ -29,19 +29,19 @@ def cnn_network(obs, num_actions, scope):
         return PF.affine(out, num_actions, name='output')
 
 
-class Network:
+class DQN:
     def __init__(self, num_actions, batch_size, gamma, lr):
         # infer variable
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
+        # inference output
+        self.infer_q_t = cnn_network(infer_obs_t, num_actions, scope='q_func')
+
         # train variables
         self.obs_t = obs_t = nn.Variable((batch_size, 4, 84, 84))
         self.actions_t = actions_t = nn.Variable((batch_size, 1))
         self.rewards_tp1 = rewards_tp1 = nn.Variable((batch_size, 1))
         self.obs_tp1 = obs_tp1 = nn.Variable((batch_size, 4, 84, 84))
         self.dones_tp1 = dones_tp1 = nn.Variable((batch_size, 1))
-
-        # inference output
-        self.infer_q_t = cnn_network(infer_obs_t, num_actions, scope='q_func')
 
         # training output
         q_t = cnn_network(obs_t, num_actions, scope='q_func')
@@ -79,17 +79,15 @@ class Network:
         self.rewards_tp1.d = np.array(rewards_tp1)
         self.obs_tp1.d = np.array(obs_tp1)
         self.dones_tp1.d = np.array(dones_tp1)
-
         self.loss.forward()
         self.solver.zero_grad()
         self.loss.backward(clear_buffer=True)
-
+        # gradient clipping by norm
         for name, variable in self.params.items():
-            # gradient clipping by norm
             grad = 10.0 * variable.grad / np.sqrt(np.sum(variable.g ** 2))
             variable.grad = grad
-
         self.solver.update()
+        return self.loss.d
 
     def update_target(self):
         for key in self.target_params.keys():
@@ -179,9 +177,8 @@ def pixel_to_float(obs):
     return np.array(obs, dtype=np.float32) / 255.0
 
 
-def train(network, buffer):
+def train(model, buffer):
     experiences = buffer.sample()
-
     obs_t = []
     actions_t = []
     rewards_tp1 = []
@@ -193,14 +190,15 @@ def train(network, buffer):
         rewards_tp1.append(experience['reward_tp1'])
         obs_tp1.append(experience['obs_tp1'])
         dones_tp1.append(experience['done_tp1'])
+    model.train(pixel_to_float(obs_t), actions_t, rewards_tp1,
+                pixel_to_float(obs_tp1), dones_tp1)
 
-    network.train(pixel_to_float(obs_t), actions_t, rewards_tp1,
-                  pixel_to_float(obs_tp1), dones_tp1)
 
-
-def train_loop(env, network, buffer, exploration, logdir):
+def train_loop(env, model, buffer, exploration, logdir):
     monitor = Monitor(logdir)
     reward_monitor = MonitorSeries('reward', monitor, interval=1)
+    # copy parameters to target network
+    model.update_target()
 
     step = 0
     while step <= 10 ** 7:
@@ -211,7 +209,7 @@ def train_loop(env, network, buffer, exploration, logdir):
 
         while not done_tp1:
             # infer q values
-            q_t = network.infer(pixel_to_float([obs_t]))[0]
+            q_t = model.infer(pixel_to_float([obs_t]))[0]
 
             # epsilon-greedy exploration
             action_t = exploration.get(step, np.argmax(q_t))
@@ -227,11 +225,11 @@ def train_loop(env, network, buffer, exploration, logdir):
 
             # update parameters
             if step > 10000 and step % 4 == 0:
-                train(network, buffer)
+                train(model, buffer)
 
             # synchronize target parameters with the latest parameters
             if step % 10000 == 0:
-                network.update_target()
+                model.update_target()
 
             # save parameters
             if step % 10 ** 6 == 0:
@@ -257,7 +255,7 @@ def main(args):
     num_actions = env.action_space.n
 
     # action-value function built with neural network
-    network = Network(num_actions, args.batch_size, args.gamma, args.lr)
+    model = DQN(num_actions, args.batch_size, args.gamma, args.lr)
     if args.load is not None:
         nn.load_parameters(args.load)
 
@@ -275,7 +273,7 @@ def main(args):
         os.makedirs(logdir)
 
     # start training loop
-    train_loop(env, network, buffer, exploration, logdir)
+    train_loop(env, model, buffer, exploration, logdir)
 
 
 if __name__ == '__main__':
