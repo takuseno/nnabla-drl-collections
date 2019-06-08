@@ -16,3 +16,6 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 - [ ] Proximal Policy Optimization (PPO)
 
 For `SAC` and `PPO`, I'm waiting for [my PR](https://github.com/sony/nnabla/pull/392) to be merged in order to implement multivariate normal distribution.
+
+## blog posts
+- [Deep Q-Network Implementation with SONY’s NNabla](https://towardsdatascience.com/deep-q-network-implementation-with-sonys-nnabla-490d945deb8e)
