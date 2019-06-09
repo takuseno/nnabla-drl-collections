@@ -117,8 +117,8 @@ class NoisyNetDQN:
         self.loss.backward(clear_buffer=True)
         # gradient clipping by norm
         for name, variable in self.params.items():
-            grad = 10.0 * variable.grad / np.sqrt(np.sum(variable.g ** 2))
-            variable.grad = grad
+            g = 10.0 * variable.g / max(np.sqrt(np.sum(variable.g ** 2)), 10.0)
+            variable.g = g
         self.solver.update()
         return self.loss.d
 
