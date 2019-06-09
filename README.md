@@ -11,7 +11,7 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 ## algorithms
 - [x] [Deep Q-Network (DQN)](https://www.nature.com/articles/nature14236)
 - [ ] [Categorical DQN](https://arxiv.org/abs/1707.06887)
-- [ ] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
+- [x] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
 - [x] [Deep Deterministic Policy Gradients (DDPG)](https://arxiv.org/abs/1509.02971)
 - [x] [Twin Delayed Deep Deterministic Policy Gradients (TD3)](https://arxiv.org/abs/1802.09477)
 - [ ] [Soft Actor-Critic (SAC)](https://arxiv.org/abs/1801.01290)
