@@ -53,8 +53,10 @@ class DQN:
         q_tp1_best = F.max(q_tp1, axis=1, keepdims=True)
 
         # loss calculation
-        target = self.rewards_tp1 + gamma * q_tp1_best * (1.0 - self.dones_tp1)
-        self.loss = F.mean(F.huber_loss(q_t_selected, target))
+        y = self.rewards_tp1 + gamma * q_tp1_best * (1.0 - self.dones_tp1)
+        # prevent unnecessary gradient calculation
+        unlinked_y = y.get_unlinked_variable(need_grad=False)
+        self.loss = F.mean(F.huber_loss(q_t_selected, unlinked_y))
 
         # optimizer
         self.solver = S.RMSprop(lr, 0.95, 1e-2)

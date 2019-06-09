@@ -60,12 +60,12 @@ class NoisyNetDQN:
         self.t_eps_w = nn.Variable((512, num_actions))
         self.t_eps_b = nn.Variable((num_actions,))
 
-        # infer variable
+        # inference
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
         self.infer_q_t = cnn_network(infer_obs_t, num_actions, self.eps_w,
                                      self.eps_b, 'q_func')
 
-        # train variables
+        # training
         self.obs_t = obs_t = nn.Variable((batch_size, 4, 84, 84))
         self.actions_t = actions_t = nn.Variable((batch_size, 1))
         self.rewards_tp1 = rewards_tp1 = nn.Variable((batch_size, 1))
@@ -83,8 +83,10 @@ class NoisyNetDQN:
         q_tp1_best = F.max(q_tp1, axis=1, keepdims=True)
 
         # loss calculation
-        target = self.rewards_tp1 + gamma * q_tp1_best * (1.0 - self.dones_tp1)
-        self.loss = F.mean(F.huber_loss(q_t_selected, target))
+        y = self.rewards_tp1 + gamma * q_tp1_best * (1.0 - self.dones_tp1)
+        # prevent unnecessary gradient calculation
+        unlinked_y = y.get_unlinked_variable(need_grad=False)
+        self.loss = F.mean(F.huber_loss(q_t_selected, unlinked_y))
 
         # weights and biases
         with nn.parameter_scope('q_func'):
@@ -152,8 +154,7 @@ class Buffer:
 #------------------------ environment wrapper --------------------------------#
 def preprocess(obs):
     gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-    state = cv2.resize(gray, (210, 160))
-    state = cv2.resize(state, (84, 110))
+    state = cv2.resize(cv2.resize(gray, (210, 160)), (84, 110))
     state = state[18:102, :]
     return state
 
