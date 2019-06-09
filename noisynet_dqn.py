@@ -99,20 +99,14 @@ class NoisyNetDQN:
         self.solver.set_parameters(self.params)
 
     def infer(self, obs_t):
-        eps_w, eps_b = sample_noise(*self.eps_w.shape)
-        self.eps_w.d = eps_w
-        self.eps_b.d = eps_b
+        self.eps_w.d, self.eps_b.d = sample_noise(*self.eps_w.shape)
         self.infer_obs_t.d = np.array(obs_t)
         self.infer_q_t.forward(clear_buffer=True)
         return self.infer_q_t.d
 
     def train(self, obs_t, actions_t, rewards_tp1, obs_tp1, dones_tp1):
-        eps_w, eps_b = sample_noise(*self.eps_w.shape)
-        t_eps_w, t_eps_b = sample_noise(*self.eps_w.shape)
-        self.eps_w.d = eps_w
-        self.eps_b.d = eps_b
-        self.t_eps_w.d = t_eps_w
-        self.t_eps_b.d = t_eps_b
+        self.eps_w.d, self.eps_b.d = sample_noise(*self.eps_w.shape)
+        self.t_eps_w.d, self.t_eps_b.d = sample_noise(*self.eps_w.shape)
         self.obs_t.d = np.array(obs_t)
         self.actions_t.d = np.array(actions_t)
         self.rewards_tp1.d = np.array(rewards_tp1)
@@ -133,7 +127,6 @@ class NoisyNetDQN:
             self.target_params[key].data.copy_from(self.params[key].data)
 #-----------------------------------------------------------------------------#
 
-
 #---------------------------- replay buffer ----------------------------------#
 class Buffer:
     def __init__(self, maxlen=10 ** 5, batch_size=32):
@@ -150,7 +143,6 @@ class Buffer:
         return random.sample(self.buffer, self.batch_size)
 #-----------------------------------------------------------------------------#
 
-
 #------------------------ environment wrapper --------------------------------#
 def preprocess(obs):
     gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
@@ -160,9 +152,7 @@ def preprocess(obs):
 
 
 def get_deque():
-    init_obs = np.zeros((4, 84, 84), dtype=np.uint8)
-    queue = deque(list(init_obs), maxlen=4)
-    return queue
+    return deque(list(np.zeros((4, 84, 84), dtype=np.uint8)), maxlen=4)
 
 
 class AtariWrapper:
@@ -172,21 +162,31 @@ class AtariWrapper:
         self.queue = get_deque()
         self.observation_space = env.observation_space
         self.action_space = env.action_space
+        self.lives = 0
+        self.was_real_done = True
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
         self.queue.append(preprocess(obs))
         if self.render:
             self.env.render()
+        self.was_real_done = done
+        lives = self.env.unwrapped.ale.lives()
+        if lives < self.lives and lives > 0:
+            done = True
+        self.lives = lives
         return np.array(list(self.queue)), reward, done, {}
 
     def reset(self):
-        obs = self.env.reset()
+        if self.was_real_done:
+            obs = self.env.reset()
+        else:
+            obs, _, _, _ = self.env.step(0)
+        self.lives = self.env.unwrapped.ale.lives()
         self.queue = get_deque()
         self.queue.append(preprocess(obs))
         return np.array(list(self.queue))
 #-----------------------------------------------------------------------------#
-
 
 #-------------------------- training loop ------------------------------------#
 def pixel_to_float(obs):
@@ -255,7 +255,6 @@ def train_loop(env, model, buffer, logdir):
         # record metrics
         reward_monitor.add(step, cumulative_reward)
 #-----------------------------------------------------------------------------#
-
 
 def main(args):
     if args.gpu:

@@ -96,7 +96,6 @@ class DQN:
             self.target_params[key].data.copy_from(self.params[key].data)
 #-----------------------------------------------------------------------------#
 
-
 #---------------------------- replay buffer ----------------------------------#
 class Buffer:
     def __init__(self, maxlen=10 ** 5, batch_size=32):
@@ -112,7 +111,6 @@ class Buffer:
     def sample(self):
         return random.sample(self.buffer, self.batch_size)
 #-----------------------------------------------------------------------------#
-
 
 #----------------------- epsilon-greedy exploration --------------------------#
 class EpsilonGreedy:
@@ -133,7 +131,6 @@ class EpsilonGreedy:
         return greedy_action
 #-----------------------------------------------------------------------------#
 
-
 #------------------------ environment wrapper --------------------------------#
 def preprocess(obs):
     gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
@@ -144,9 +141,7 @@ def preprocess(obs):
 
 
 def get_deque():
-    init_obs = np.zeros((4, 84, 84), dtype=np.uint8)
-    queue = deque(list(init_obs), maxlen=4)
-    return queue
+    return deque(list(np.zeros((4, 84, 84), dtype=np.uint8)), maxlen=4)
 
 
 class AtariWrapper:
@@ -156,23 +151,31 @@ class AtariWrapper:
         self.queue = get_deque()
         self.observation_space = env.observation_space
         self.action_space = env.action_space
+        self.lives = 0
+        self.was_real_done = True
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
-        processed = preprocess(obs)
-        self.queue.append(processed)
+        self.queue.append(preprocess(obs))
         if self.render:
             self.env.render()
+        self.was_real_done = done
+        lives = self.env.unwrapped.ale.lives()
+        if lives < self.lives and lives > 0:
+            done = True
+        self.lives = lives
         return np.array(list(self.queue)), reward, done, {}
 
     def reset(self):
-        obs = self.env.reset()
-        processed = preprocess(obs)
+        if self.was_real_done:
+            obs = self.env.reset()
+        else:
+            obs, _, _, _ = self.env.step(0)
+        self.lives = self.env.unwrapped.ale.lives()
         self.queue = get_deque()
-        self.queue.append(processed)
+        self.queue.append(preprocess(obs))
         return np.array(list(self.queue))
 #-----------------------------------------------------------------------------#
-
 
 #-------------------------- training loop ------------------------------------#
 def pixel_to_float(obs):
@@ -213,16 +216,12 @@ def train_loop(env, model, buffer, exploration, logdir):
         while not done_tp1:
             # infer q values
             q_t = model.infer(pixel_to_float([obs_t]))[0]
-
             # epsilon-greedy exploration
             action_t = exploration.get(step, np.argmax(q_t))
-
             # move environment
             obs_tp1, reward_tp1, done_tp1, _ = env.step(action_t)
-
             # clip reward between [-1.0, 1.0]
             clipped_reward_tp1 = np.clip(reward_tp1, -1.0, 1.0)
-
             # store transition
             buffer.add(obs_t, action_t, clipped_reward_tp1, obs_tp1, done_tp1)
 
@@ -247,7 +246,6 @@ def train_loop(env, model, buffer, exploration, logdir):
         # record metrics
         reward_monitor.add(step, cumulative_reward)
 #-----------------------------------------------------------------------------#
-
 
 def main(args):
     if args.gpu:
