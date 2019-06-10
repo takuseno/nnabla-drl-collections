@@ -89,8 +89,8 @@ class DuelingDQN:
         self.loss.backward(clear_buffer=True)
         # gradient clipping by norm
         for name, variable in self.params.items():
-            with nn.auto_forward():
-                variable.grad = F.clip_by_norm(variable.grad , 10.0)
+            g = 10.0 * variable.g / np.sqrt(np.sum(variable.g ** 2))
+            variable.g = g
         self.solver.update()
         return self.loss.d
 
