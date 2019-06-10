@@ -210,7 +210,7 @@ def train_loop(env, model, buffer, logdir, final_step, d, sigma, render):
     monitor = Monitor(logdir)
     actor_loss_monitor = MonitorSeries('actor_loss', monitor, interval=10000)
     critic_loss_monitor = MonitorSeries('critic_loss', monitor, interval=10000)
-    reward_monitor = MonitorSeries('reward', monitor, interval=100)
+    reward_monitor = MonitorSeries('reward', monitor, interval=1)
     # copy parameters to target networks
     model.sync_target()
 

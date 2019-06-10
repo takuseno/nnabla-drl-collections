@@ -117,8 +117,8 @@ class NoisyNetDQN:
         self.loss.backward(clear_buffer=True)
         # gradient clipping by norm
         for name, variable in self.params.items():
-            g = 10.0 * variable.g / max(np.sqrt(np.sum(variable.g ** 2)), 10.0)
-            variable.g = g
+            with nn.auto_forward():
+                variable.grad = F.clip_by_norm(variable.grad, 10.0)
         self.solver.update()
         return self.loss.d
 
@@ -212,7 +212,7 @@ def train(model, buffer):
 
 def train_loop(env, model, buffer, logdir):
     monitor = Monitor(logdir)
-    reward_monitor = MonitorSeries('reward', monitor, interval=100)
+    reward_monitor = MonitorSeries('reward', monitor, interval=1)
     loss_monitor = MonitorSeries('loss', monitor, interval=10000)
     # copy parameters to target network
     model.update_target()

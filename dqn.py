@@ -201,7 +201,7 @@ def train(model, buffer):
 
 def train_loop(env, model, buffer, exploration, logdir):
     monitor = Monitor(logdir)
-    reward_monitor = MonitorSeries('reward', monitor, interval=100)
+    reward_monitor = MonitorSeries('reward', monitor, interval=1)
     loss_monitor = MonitorSeries('loss', monitor, interval=10000)
     # copy parameters to target network
     model.update_target()
