@@ -1,6 +1,7 @@
 # NNabla DRL Collections
 Single file deep reinforcement learning implementations with NNabla.
 All algorithms are written in 300 lines.
+As each file does not have any dependencies among this repository, you can run all the algorithms just by copying one of them to anywhere you want.
 
 ## install
 ```
@@ -10,6 +11,7 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 
 ## algorithms
 - [x] [Deep Q-Network (DQN)](https://www.nature.com/articles/nature14236)
+- [x] [Dueling DQN](https://arxiv.org/abs/1511.06581)
 - [ ] [Categorical DQN](https://arxiv.org/abs/1707.06887)
 - [x] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
 - [x] [Deep Deterministic Policy Gradients (DDPG)](https://arxiv.org/abs/1509.02971)
