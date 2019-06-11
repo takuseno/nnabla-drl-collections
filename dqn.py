@@ -54,9 +54,7 @@ class DQN:
 
         # loss calculation
         y = self.rewards_tp1 + gamma * q_tp1_best * (1.0 - self.dones_tp1)
-        # prevent unnecessary gradient calculation
-        unlinked_y = y.get_unlinked_variable(need_grad=False)
-        self.loss = F.mean(F.huber_loss(q_t_selected, unlinked_y))
+        self.loss = F.mean(F.huber_loss(q_t_selected, y))
 
         # optimizer
         self.solver = S.RMSprop(lr, 0.95, 1e-2)
