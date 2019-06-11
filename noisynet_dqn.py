@@ -32,10 +32,10 @@ def noisy_layer(x, out_size, eps_w, eps_b, name):
 
 
 def sample_noise(inpt_size, out_size):
-    _f = lambda x: np.sign(x) * np.sqrt(np.abs(x))
-    noise = _f(np.random.normal(0.0, 1.0, size=inpt_size + out_size))
-    eps_w = np.matmul(np.reshape(noise[:inpt_size], (-1, 1)),
-                      np.reshape(noise[inpt_size:], (1, -1)))
+    _f = lambda x: F.sign(x) * F.pow_scalar(F.abs(x), 0.5)
+    noise = _f(F.randn(shape=(inpt_size + out_size,)))
+    eps_w = F.batch_matmul(F.reshape(noise[:inpt_size], (1, -1)),
+                           F.reshape(noise[inpt_size:], (1, -1)), True)
     eps_b = noise[inpt_size:]
     return eps_w, eps_b
 
@@ -55,10 +55,8 @@ def cnn_network(obs, num_actions, epsilon_w, epsilon_b, scope):
 
 class NoisyNetDQN:
     def __init__(self, num_actions, batch_size, gamma, lr):
-        self.eps_w = nn.Variable((512, num_actions))
-        self.eps_b = nn.Variable((num_actions,))
-        self.t_eps_w = nn.Variable((512, num_actions))
-        self.t_eps_b = nn.Variable((num_actions,))
+        self.eps_w, self.eps_b = sample_noise(512, num_actions)
+        self.t_eps_w, self.t_eps_b = sample_noise(512, num_actions)
 
         # inference
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
@@ -97,14 +95,11 @@ class NoisyNetDQN:
         self.solver.set_parameters(self.params)
 
     def infer(self, obs_t):
-        self.eps_w.d, self.eps_b.d = sample_noise(*self.eps_w.shape)
         self.infer_obs_t.d = np.array(obs_t)
         self.infer_q_t.forward(clear_buffer=True)
         return self.infer_q_t.d
 
     def train(self, obs_t, actions_t, rewards_tp1, obs_tp1, dones_tp1):
-        self.eps_w.d, self.eps_b.d = sample_noise(*self.eps_w.shape)
-        self.t_eps_w.d, self.t_eps_b.d = sample_noise(*self.eps_w.shape)
         self.obs_t.d = np.array(obs_t)
         self.actions_t.d = np.array(actions_t)
         self.rewards_tp1.d = np.array(rewards_tp1)
