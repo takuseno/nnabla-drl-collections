@@ -68,9 +68,7 @@ class DDPG:
                 self.obs_tp1, action_size, 'actor')
             q_tp1 = q_network(self.obs_tp1, policy_tp1, 'critic')
         y = self.rewards_tp1 + gamma * q_tp1 * (1.0 - self.dones_tp1)
-        # stop backpropation to the target to prevent unncessary calculation
-        unlinked_y = y.get_unlinked_variable(need_grad=False)
-        self.critic_loss = F.mean(F.squared_error(q_t, unlinked_y))
+        self.critic_loss = F.mean(F.squared_error(q_t, y))
 
         # actor training
         with nn.parameter_scope('trainable'):

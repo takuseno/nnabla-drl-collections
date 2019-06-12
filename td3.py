@@ -85,10 +85,8 @@ class TD3:
             q2_tp1 = q_network(self.obs_tp1, smoothed_target, 'critic/2')
         q_tp1 = F.minimum2(q1_tp1, q2_tp1)
         y = self.rewards_tp1 + gamma * q_tp1 * (1.0 - self.dones_tp1)
-        # stop backpropagation to the target to prevent unnecessary calculation
-        unlinked_y = y.get_unlinked_variable(need_grad=False)
-        td1 = F.mean(F.squared_error(q1_t, unlinked_y))
-        td2 = F.mean(F.squared_error(q2_t, unlinked_y))
+        td1 = F.mean(F.squared_error(q1_t, y))
+        td2 = F.mean(F.squared_error(q2_t, y))
         self.critic_loss = td1 + td2
 
         # actor loss
