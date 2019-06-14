@@ -16,17 +16,17 @@ from nnabla.ext_utils import get_extension_context
 
 
 #------------------------------- neural network ------------------------------#
-def _dists(max_val, min_val, num_bins):
+def _dists(min_val, max_val, num_bins):
     bins = []
     for i in range(num_bins):
-        bins.append((i + 1) * (max_val - min_val) / (num_bins - 1))
+        bins.append(min_val + i * (max_val - min_val) / (num_bins - 1))
     dists = nn.Variable.from_numpy_array(np.array(bins))
     dists.need_grad = False
     dists.persistent = True
     return F.reshape(dists, (-1, 1))
 
 
-def cnn_network(obs, num_actions, max_val, min_val, num_bins, scope):
+def cnn_network(obs, num_actions, min_val, max_val, num_bins, scope):
     with nn.parameter_scope(scope):
         out = PF.convolution(obs, 32, (8, 8), stride=(4, 4), name='conv1')
         out = F.relu(out)
@@ -41,20 +41,20 @@ def cnn_network(obs, num_actions, max_val, min_val, num_bins, scope):
     # (batch, num_actions, num_bins)
     probs = F.exp(out) / F.sum(F.exp(out), axis=2, keepdims=True)
     # (num_bins, 1)
-    dists = _dists(max_val, min_val, num_bins)
+    dists = _dists(min_val, max_val, num_bins)
     # (batch, num_actions, num_bins) * (1, 1, num_bins) -> (batch, num_actions, num_bins)
     values = F.sum(probs * F.reshape(dists, (1, 1, num_bins)), axis=2)
     return values, probs, dists
 
 
 class CategoricalDQN:
-    def __init__(self, num_actions, max_val, min_val, num_bins, batch_size,
+    def __init__(self, num_actions, min_val, max_val, num_bins, batch_size,
                  gamma, lr):
         # infer variable
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
         # inference output
-        self.infer_q_t, _, _ = cnn_network(infer_obs_t, num_actions, max_val,
-                                           min_val, num_bins, 'q_func')
+        self.infer_q_t, _, _ = cnn_network(infer_obs_t, num_actions, min_val,
+                                           max_val, num_bins, 'q_func')
 
         # train variables
         self.obs_t = obs_t = nn.Variable((batch_size, 4, 84, 84))
@@ -64,10 +64,10 @@ class CategoricalDQN:
         self.dones_tp1 = dones_tp1 = nn.Variable((batch_size, 1))
 
         # training output
-        q_t, probs_t, dists = cnn_network(obs_t, num_actions, max_val, min_val,
+        q_t, probs_t, dists = cnn_network(obs_t, num_actions, min_val, max_val,
                                           num_bins, 'q_func')
-        q_tp1, probs_tp1, _ = cnn_network(obs_tp1, num_actions, max_val,
-                                          min_val, num_bins, 'target_q_func')
+        q_tp1, probs_tp1, _ = cnn_network(obs_tp1, num_actions, min_val,
+                                          max_val, num_bins, 'target_q_func')
 
         # select one dimension
         a_t_one_hot = F.reshape(F.one_hot(actions_t, (num_actions,)), (-1, num_actions, 1))
@@ -83,8 +83,8 @@ class CategoricalDQN:
         # (batch, 1) + (1, num_bins) * (batch, 1) -> (batch, num_bins)
         t_z = self.rewards_tp1 + gamma * F.reshape(dists, (1, -1)) * (1.0 - self.dones_tp1)
         clipped_t_z = F.clip_by_value(
-            t_z, F.constant(max_val, shape=(batch_size, 1)),
-            F.constant(min_val, shape=(batch_size, 1)))
+            t_z, F.constant(min_val, shape=(batch_size, 1)),
+            F.constant(max_val, shape=(batch_size, 1)))
         # (batch, num_bins)
         b = (clipped_t_z - min_val) / ((max_val - min_val) / (num_bins - 1))
         l = F.floor(b)
@@ -100,7 +100,7 @@ class CategoricalDQN:
         m = F.sum(m_l * l_mask + m_u * u_mask, axis=1)
         m.need_grad = False
 
-        self.loss = -F.mean(F.sum(m * F.log(probs_t_selected + 1e-5), axis=1))
+        self.loss = -F.mean(F.sum(m * F.log(probs_t_selected + 1e-20), axis=1))
 
         # optimizer
         self.solver = S.RMSprop(lr, 0.95, 1e-2)
