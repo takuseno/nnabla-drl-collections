@@ -23,7 +23,7 @@ def _dists(max_val, min_val, num_bins):
     dists = nn.Variable.from_numpy_array(np.array(bins))
     dists.need_grad = False
     dists.persistent = True
-    return dists
+    return F.reshape(dists, (-1, 1))
 
 
 def cnn_network(obs, num_actions, max_val, min_val, num_bins, scope):
@@ -38,19 +38,23 @@ def cnn_network(obs, num_actions, max_val, min_val, num_bins, scope):
         out = F.relu(out)
         out = PF.affine(out, num_actions * num_bins, name='output')
         out = F.reshape(out, (-1, num_actions, num_bins))
+    # (batch, num_actions, num_bins)
     probs = F.exp(out) / F.sum(F.exp(out), axis=2, keepdims=True)
+    # (num_bins, 1)
     dists = _dists(max_val, min_val, num_bins)
-    values = F.sum(probs * F.reshape(dists, (-1, 1, num_bins)), axis=2)
+    # (batch, num_actions, num_bins) * (1, 1, num_bins) -> (batch, num_actions, num_bins)
+    values = F.sum(probs * F.reshape(dists, (1, 1, num_bins)), axis=2)
     return values, probs, dists
 
 
-
 class CategoricalDQN:
-    def __init__(self, num_actions, max_val, min_val, num_bins, batch_size, gamma, lr):
+    def __init__(self, num_actions, max_val, min_val, num_bins, batch_size,
+                 gamma, lr):
         # infer variable
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
         # inference output
-        self.infer_q_t, _, _ = cnn_network(infer_obs_t, num_actions, max_val, min_val, num_bins, scope='q_func')
+        self.infer_q_t, _, _ = cnn_network(infer_obs_t, num_actions, max_val,
+                                           min_val, num_bins, 'q_func')
 
         # train variables
         self.obs_t = obs_t = nn.Variable((batch_size, 4, 84, 84))
@@ -60,33 +64,43 @@ class CategoricalDQN:
         self.dones_tp1 = dones_tp1 = nn.Variable((batch_size, 1))
 
         # training output
-        q_t, probs_t, dists = cnn_network(obs_t, num_actions, max_val, min_val, num_bins, scope='q_func')
-        q_tp1, probs_tp1, _ = cnn_network(obs_tp1, num_actions, max_val, min_val, num_bins, scope='target_q_func')
+        q_t, probs_t, dists = cnn_network(obs_t, num_actions, max_val, min_val,
+                                          num_bins, 'q_func')
+        q_tp1, probs_tp1, _ = cnn_network(obs_tp1, num_actions, max_val,
+                                          min_val, num_bins, 'target_q_func')
 
         # select one dimension
-        a_one_hot = F.one_hot(actions_t, (num_actions,))
-        q_t_selected = F.sum(q_t * a_one_hot, axis=1, keepdims=True)
-        probs_t_selected = F.max(probs_t * F.reshape(a_one_hot, (-1, num_actions, 1)), axis=1)
-        q_tp1_best, indices = F.max(q_tp1, axis=1, keepdims=True, with_index=True)
+        a_t_one_hot = F.reshape(F.one_hot(actions_t, (num_actions,)), (-1, num_actions, 1))
+        # max((batch, num_actions, num_bins) * (batch, num_actions, 1), axis=1) -> (batch. num_bins)
+        probs_t_selected = F.max(probs_t * a_t_one_hot, axis=1)
+        # (batch, num_actions) -> (batch, 1)
+        indices = F.max(q_tp1, axis=1, keepdims=True, with_index=True, only_index=True)
+        # (batch, 1) -> (batch, num_actions, 1)
         a_tp1_one_hot = F.reshape(F.one_hot(indices, (num_actions,)), (-1, num_actions, 1))
+        # max((batch, num_actions, num_bins) * (batch, num_actions, 1), axis=1) -> (batch, num_bins)
         probs_tp1_best = F.max(probs_tp1 * a_tp1_one_hot, axis=1)
 
-        t_z = F.clip_by_value(self.rewards_tp1 + gamma * F.reshape(dists, (1, -1)) * (1.0 - self.dones_tp1),
-                              F.constant(max_val, shape=(batch_size, 1)),
-                              F.constant(min_val, shape=(batch_size, 1)))
-        b = (t_z - min_val) / ((max_val - min_val) / (num_bins - 1))
+        # (batch, 1) + (1, num_bins) * (batch, 1) -> (batch, num_bins)
+        t_z = self.rewards_tp1 + gamma * F.reshape(dists, (1, -1)) * (1.0 - self.dones_tp1)
+        clipped_t_z = F.clip_by_value(
+            t_z, F.constant(max_val, shape=(batch_size, 1)),
+            F.constant(min_val, shape=(batch_size, 1)))
+        # (batch, num_bins)
+        b = (clipped_t_z - min_val) / ((max_val - min_val) / (num_bins - 1))
         l = F.floor(b)
+        # (batch, num_bins, num_bins)
         l_mask = F.reshape(F.one_hot(F.reshape(l, (-1, 1)), (num_bins,)), (-1, num_bins, num_bins))
         u = F.ceil(b)
+        # (batch, num_bins, num_bins)
         u_mask = F.reshape(F.one_hot(F.reshape(u, (-1, 1)), (num_bins,)), (-1, num_bins, num_bins))
 
         m_l = F.reshape(probs_tp1_best * (u - b), (-1, num_bins, 1))
         m_u = F.reshape(probs_tp1_best * (b - l), (-1, num_bins, 1))
 
         m = F.sum(m_l * l_mask + m_u * u_mask, axis=1)
-        unlinked_m = m.get_unlinked_variable(need_grad=False)
+        m.need_grad = False
 
-        self.loss = -F.mean(F.sum(unlinked_m * F.log(probs_t_selected + 1e-5), axis=1))
+        self.loss = -F.mean(F.sum(m * F.log(probs_t_selected + 1e-5), axis=1))
 
         # optimizer
         self.solver = S.RMSprop(lr, 0.95, 1e-2)
