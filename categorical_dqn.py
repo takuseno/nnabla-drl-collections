@@ -18,11 +18,7 @@ from nnabla.ext_utils import get_extension_context
 #------------------------------- neural network ------------------------------#
 def _dists(min_val, max_val, num_bins):
     bins = []
-    for i in range(num_bins):
-        bins.append(min_val + i * (max_val - min_val) / (num_bins - 1))
-    dists = nn.Variable.from_numpy_array(np.array(bins))
-    dists.need_grad = False
-    dists.persistent = True
+    dists = F.arange(0, num_bins) * (max_val - min_val) / (num_bins - 1) + min_val
     return F.reshape(dists, (-1, 1))
 
 
@@ -94,7 +90,7 @@ class CategoricalDQN:
         # (batch, num_bins, num_bins)
         u_mask = F.reshape(F.one_hot(F.reshape(u, (-1, 1)), (num_bins,)), (-1, num_bins, num_bins))
 
-        m_l = F.reshape(probs_tp1_best * (u - b), (-1, num_bins, 1))
+        m_l = F.reshape(probs_tp1_best * (1 - (b - l)), (-1, num_bins, 1))
         m_u = F.reshape(probs_tp1_best * (b - l), (-1, num_bins, 1))
 
         m = F.sum(m_l * l_mask + m_u * u_mask, axis=1)
