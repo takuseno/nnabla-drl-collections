@@ -1,7 +1,6 @@
 import numpy as np
 import nnabla as nn
-import nnabla.parametric_functions as PF
-import nnabla.functions as F
+import nnabla.parametric_functions as PF import nnabla.functions as F
 import nnabla.solvers as S
 import random
 import argparse
@@ -286,8 +285,8 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lr', type=float, default=2.5e-4)
     parser.add_argument('--buffer-size', type=int, default=10 ** 5)
-    parser.add_argument('--epsilon', type=int, default=1.0)
-    parser.add_argument('--schedule_duration', type=int, default=10 ** 6)
+    parser.add_argument('--epsilon', type=float, default=1.0)
+    parser.add_argument('--schedule-duration', type=int, default=10 ** 6)
     parser.add_argument('--logdir', type=str, default='dueling_dqn')
     parser.add_argument('--load', type=str)
     parser.add_argument('--device', type=int, default='0')
