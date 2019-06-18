@@ -56,31 +56,33 @@ class CategoricalDQN:
         q_tp1, probs_tp1, _ = cnn_network(obs_tp1, num_actions, min_v,
                                           max_v, num_bins, 'target_q_func')
 
-        # select one dimension
-        a_t_one_hot = F.reshape(F.one_hot(actions_t, (num_actions,)),
-                                (-1, num_actions, 1))
+        expand_last = lambda x: F.reshape(x, x.shape + (1,))
+        flat = lambda x: F.reshape(x, (-1, 1))
+
+        # extract selected dimension
+        a_t_one_hot = expand_last(F.one_hot(actions_t, (num_actions,)))
         probs_t_selected = F.max(probs_t * a_t_one_hot, axis=1)
+        # extract max dimension
         _, indices = F.max(q_tp1, axis=1, keepdims=True, with_index=True)
-        a_tp1_one_hot = F.reshape(F.one_hot(indices, (num_actions,)),
-                                  (-1, num_actions, 1))
+        a_tp1_one_hot = expand_last(F.one_hot(indices, (num_actions,)))
         probs_tp1_best = F.max(probs_tp1 * a_tp1_one_hot, axis=1)
 
         disc_q_tp1 = gamma * F.reshape(dists, (1, -1)) * (1.0 - self.dones_tp1)
-        t_z = self.rewards_tp1 + disc_q_tp1
-        clipped_t_z = F.clip_by_value(
-            t_z, F.constant(min_v, shape=(batch_size, 1)),
-            F.constant(max_v, shape=(batch_size, 1)))
-        b = (clipped_t_z - min_v) / ((max_v - min_v) / (num_bins - 1))
+        t_z = F.clip_by_value(
+            self.rewards_tp1 + disc_q_tp1, F.constant(min_v, (batch_size, 1)),
+            F.constant(max_v, (batch_size, 1)))
+
+        # update indices
+        b = (t_z - min_v) / ((max_v - min_v) / (num_bins - 1))
         l = F.floor(b)
-        l_mask = F.reshape(F.one_hot(F.reshape(l, (-1, 1)), (num_bins,)),
+        l_mask = F.reshape(F.one_hot(flat(l), (num_bins,)),
                            (-1, num_bins, num_bins))
         u = F.ceil(b)
-        u_mask = F.reshape(F.one_hot(F.reshape(u, (-1, 1)), (num_bins,)),
+        u_mask = F.reshape(F.one_hot(flat(u), (num_bins,)),
                            (-1, num_bins, num_bins))
 
-        m_l = F.reshape(probs_tp1_best * (1 - (b - l)), (-1, num_bins, 1))
-        m_u = F.reshape(probs_tp1_best * (b - l), (-1, num_bins, 1))
-
+        m_l = expand_last(probs_tp1_best * (1 - (b - l)))
+        m_u = expand_last(probs_tp1_best * (b - l))
         m = F.sum(m_l * l_mask + m_u * u_mask, axis=1)
         m.need_grad = False
 
