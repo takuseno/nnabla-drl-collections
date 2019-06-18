@@ -15,6 +15,8 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 - [x] [Categorical DQN](https://arxiv.org/abs/1707.06887)
 - [x] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
 - [ ] [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952)
+- [ ] [Advantage Actor-Critic (A2C)](https://arxiv.org/abs/1602.01783)
+- [ ] [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 
 ## algorithms (continuous action-space)
 - [x] [Deep Deterministic Policy Gradients (DDPG)](https://arxiv.org/abs/1509.02971)
