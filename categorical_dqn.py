@@ -40,8 +40,9 @@ class CategoricalDQN:
         # infer variable
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
         # inference output
-        self.infer_q_t, _, _ = cnn_network(infer_obs_t, num_actions, min_v,
-                                           max_v, num_bins, 'q_func')
+        self.infer_q_t, self.infer_probs_t, _ = cnn_network(
+            infer_obs_t, num_actions, min_v, max_v, num_bins, 'q_func')
+        self.infer_t = F.sink(self.infer_q_t, self.infer_probs_t)
 
         # train variables
         self.obs_t = obs_t = nn.Variable((batch_size, 4, 84, 84))
@@ -102,8 +103,8 @@ class CategoricalDQN:
 
     def infer(self, obs_t):
         self.infer_obs_t.d = np.array(obs_t)
-        self.infer_q_t.forward(clear_buffer=True)
-        return self.infer_q_t.d
+        self.infer_t.forward(clear_buffer=True)
+        return self.infer_q_t.d[0], self.infer_probs_t.d[0]
 
     def train(self, obs_t, actions_t, rewards_tp1, obs_tp1, dones_tp1):
         self.obs_t.d = np.array(obs_t)
