@@ -191,7 +191,7 @@ def train_loop(env, model, num_actions, update_interval, return_fn, logdir):
     step = 0
     obs_t = env.reset()
     cumulative_reward = np.zeros(len(env.envs), dtype=np.float32)
-    obss_t, actions_t, values_t, rewards_tp1, dones_tp1 = [], [], [], [], []
+    obss_t, acts_t, vals_t, rewards_tp1, dones_tp1 = [], [], [], [], []
     while step <= 10 ** 7:
         # inference
         probs_t, value_t = model.infer(pixel_to_float(obs_t))
@@ -203,26 +203,22 @@ def train_loop(env, model, num_actions, update_interval, return_fn, logdir):
         clipped_reward_tp1 = np.clip(reward_tp1, -1.0, 1.0)
 
         obss_t.append(obs_t)
-        actions_t.append(action_t)
-        values_t.append(value_t)
+        acts_t.append(action_t)
+        vals_t.append(value_t)
         rewards_tp1.append(clipped_reward_tp1)
         dones_tp1.append(done_tp1)
 
         # update parameters
         if len(obss_t) == update_interval:
-            values_t.append(value_t)
-            returns_t = return_fn(values_t, rewards_tp1, dones_tp1)
-            advantages_t = returns_t - values_t[:-1]
+            vals_t.append(value_t)
+            returns_t = return_fn(vals_t, rewards_tp1, dones_tp1)
+            advantages_t = returns_t - vals_t[:-1]
             policy_loss, value_loss = model.train(pixel_to_float(obss_t),
-                                                  actions_t, returns_t,
+                                                  acts_t, returns_t,
                                                   advantages_t, step)
             policy_loss_monitor.add(step, policy_loss)
             value_loss_monitor.add(step, value_loss)
-            obss_t.clear()
-            actions_t.clear()
-            values_t.clear()
-            rewards_tp1.clear()
-            dones_tp1.clear()
+            obss_t, acts_t, vals_t, rewards_tp1, dones_tp1 = [], [], [], [], []
 
         # save parameters
         cumulative_reward += reward_tp1
