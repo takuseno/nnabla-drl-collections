@@ -30,8 +30,16 @@ def cnn_network(obs, num_actions, scope):
     return policy, value
 
 
+def learning_rate_scheduler(init_lr, max_iter):
+    def _scheduler(step):
+        lr = init_lr * (1.0 - step / max_iter)
+        return max(lr, 0.0)
+    return _scheduler
+
+
 class A2C:
-    def __init__(self, num_actions, num_envs, batch_size, v_coeff, ent_coeff, lr):
+    def __init__(self, num_actions, num_envs, batch_size, v_coeff, ent_coeff,
+                 lr_scheduler):
         self.infer_obs_t = nn.Variable((num_envs, 4, 84, 84))
         self.infer_pi_t, self.infer_value_t = cnn_network(
             self.infer_obs_t, num_actions, 'network')
@@ -49,8 +57,7 @@ class A2C:
         self.value_loss = v_coeff * F.mean(l2loss)
 
         # policy loss
-        log_pi_t = F.clip_by_value(F.log(pi_t), F.constant(1e-20, pi_t.shape),
-                                   F.constant(1.0, pi_t.shape))
+        log_pi_t = F.log(pi_t + 1e-20)
         a_one_hot = F.one_hot(self.actions_t, (num_actions,))
         log_probs_t = F.sum(log_pi_t * a_one_hot, axis=1, keepdims=True)
         self.pi_loss = F.mean(log_probs_t * self.advantages_t)
@@ -61,15 +68,16 @@ class A2C:
         self.loss = self.value_loss - self.pi_loss - entropy
 
         self.params = nn.get_parameters()
-        self.solver = S.RMSprop(lr, 0.95, 1e-2)
+        self.solver = S.RMSprop(lr_scheduler(0.0), 0.99, 1e-5)
         self.solver.set_parameters(self.params)
+        self.lr_scheduler = lr_scheduler
 
     def infer(self, obs_t):
         self.infer_obs_t.d = np.array(obs_t)
         self.infer_t.forward(clear_buffer=True)
         return self.infer_pi_t.d, np.reshape(self.infer_value_t.d, (-1,))
 
-    def train(self, obs_t, actions_t, returns_t, advantages_t):
+    def train(self, obs_t, actions_t, returns_t, advantages_t, step):
         self.obs_t.d = np.array(obs_t).reshape((-1, 4, 84, 84))
         self.actions_t.d = np.array(actions_t).reshape((-1, 1))
         self.returns_t.d = np.array(returns_t).reshape((-1, 1))
@@ -85,6 +93,7 @@ class A2C:
         if np.sqrt(sum_grad) > 0.5:
             for variable in self.params.values():
                 variable.g = 0.5 * variable.g / np.sqrt(sum_grad)
+        self.solver.set_learning_rate(self.lr_scheduler(step))
         self.solver.update()
         return pi_loss, v_loss
 #-----------------------------------------------------------------------------#
@@ -161,19 +170,18 @@ def pixel_to_float(obs):
     return np.array(obs, dtype=np.float32) / 255.0
 
 
-def train(model, obss_t, actions_t, values_t, rewards_tp1, dones_tp1, gamma):
-    V = values_t[-1]
-    returns_t = []
-    for reward_t, done_tp1 in zip(reversed(rewards_tp1), reversed(dones_tp1)):
-        V = reward_t + gamma * V * (1.0 - done_tp1)
-        returns_t.append(V)
-    returns_t = list(reversed(returns_t))
-    advantages_t = np.array(returns_t) - np.array(values_t[:-1])
-    return model.train(
-        pixel_to_float(obss_t), actions_t, returns_t, advantages_t)
+def compute_returns(gamma):
+    def _compute(values_t, rewards_tp1, dones_tp1):
+        V = values_t[-1]
+        returns_t = []
+        for reward_t, done_tp1 in reversed(list(zip(rewards_tp1, dones_tp1))):
+            V = reward_t + gamma * V * (1.0 - done_tp1)
+            returns_t.append(V)
+        return np.array(list(reversed(returns_t)))
+    return _compute
 
 
-def train_loop(env, model, num_actions, update_interval, gamma, logdir):
+def train_loop(env, model, num_actions, update_interval, return_fn, logdir):
     monitor = Monitor(logdir)
     reward_monitor = MonitorSeries('reward', monitor, interval=1)
     policy_loss_monitor = MonitorSeries('policy_loss', monitor, interval=10000)
@@ -181,58 +189,53 @@ def train_loop(env, model, num_actions, update_interval, gamma, logdir):
     sample_action = lambda x: np.random.choice(num_actions, p=x)
 
     step = 0
-    while True:
-        obs_t = env.reset()
-        cumulative_reward = np.zeros(len(env.envs), dtype=np.float32)
-        obss_t = []
-        actions_t = []
-        values_t = []
-        rewards_tp1 = []
-        dones_tp1 = []
-        while step <= 10 ** 7:
-            # inference
-            probs_t, value_t = model.infer(pixel_to_float(obs_t))
-            # sample actions
-            action_t = list(map(sample_action, probs_t))
-            # move environment
-            obs_tp1, reward_tp1, done_tp1, _ = env.step(action_t)
-            # clip reward between [-1.0, 1.0]
-            clipped_reward_tp1 = np.clip(reward_tp1, -1.0, 1.0)
+    obs_t = env.reset()
+    cumulative_reward = np.zeros(len(env.envs), dtype=np.float32)
+    obss_t, actions_t, values_t, rewards_tp1, dones_tp1 = [], [], [], [], []
+    while step <= 10 ** 7:
+        # inference
+        probs_t, value_t = model.infer(pixel_to_float(obs_t))
+        # sample actions
+        action_t = list(map(sample_action, probs_t))
+        # move environment
+        obs_tp1, reward_tp1, done_tp1, _ = env.step(action_t)
+        # clip reward between [-1.0, 1.0]
+        clipped_reward_tp1 = np.clip(reward_tp1, -1.0, 1.0)
 
-            value_t[done_tp1 == 1.0] = 0.0
-            obss_t.append(obs_t)
-            actions_t.append(action_t)
+        obss_t.append(obs_t)
+        actions_t.append(action_t)
+        values_t.append(value_t)
+        rewards_tp1.append(clipped_reward_tp1)
+        dones_tp1.append(done_tp1)
+
+        # update parameters
+        if len(obss_t) == update_interval:
             values_t.append(value_t)
-            rewards_tp1.append(clipped_reward_tp1)
-            dones_tp1.append(done_tp1)
+            returns_t = return_fn(values_t, rewards_tp1, dones_tp1)
+            advantages_t = returns_t - values_t[:-1]
+            policy_loss, value_loss = model.train(pixel_to_float(obss_t),
+                                                  actions_t, returns_t,
+                                                  advantages_t, step)
+            policy_loss_monitor.add(step, policy_loss)
+            value_loss_monitor.add(step, value_loss)
+            obss_t.clear()
+            actions_t.clear()
+            values_t.clear()
+            rewards_tp1.clear()
+            dones_tp1.clear()
 
-            # update parameters
-            if len(obss_t) == update_interval:
-                values_t.append(value_t)
-                policy_loss, value_loss = train(model, obss_t, actions_t,
-                                                values_t, rewards_tp1,
-                                                dones_tp1, gamma)
-                policy_loss_monitor.add(step, policy_loss)
-                value_loss_monitor.add(step, value_loss)
-                obss_t = []
-                actions_t = []
-                values_t = []
-                rewards_tp1 = []
-                dones_tp1 = []
+        # save parameters
+        cumulative_reward += reward_tp1
+        obs_t = obs_tp1
 
-            # save parameters
+        for i, done in enumerate(done_tp1):
+            step += 1
+            if done:
+                reward_monitor.add(step, cumulative_reward[i])
+                cumulative_reward[i] = 0.0
             if step % 10 ** 6 == 0:
                 path = os.path.join(logdir, 'model_{}.h5'.format(step))
                 nn.save_parameters(path)
-
-            step += len(env.envs)
-            cumulative_reward += reward_tp1
-            obs_t = obs_tp1
-
-            for i, done in enumerate(done_tp1):
-                if done:
-                    reward_monitor.add(step, cumulative_reward[i])
-                    cumulative_reward[i] = 0.0
 #-----------------------------------------------------------------------------#
 
 def main(args):
@@ -248,8 +251,9 @@ def main(args):
 
     # action-value function built with neural network
     time_horizon = args.time_horizon
+    lr_scheduler = learning_rate_scheduler(args.lr, 10 ** 7)
     model = A2C(num_actions, num_envs, num_envs * time_horizon, args.v_coeff,
-                args.ent_coeff, args.lr)
+                args.ent_coeff, lr_scheduler)
     if args.load is not None:
         nn.load_parameters(args.load)
 
@@ -260,7 +264,8 @@ def main(args):
         os.makedirs(logdir)
 
     # start training loop
-    train_loop(batch_env, model, num_actions, time_horizon, args.gamma, logdir)
+    return_fn = compute_returns(args.gamma)
+    train_loop(batch_env, model, num_actions, time_horizon, return_fn, logdir)
 
 
 if __name__ == '__main__':
@@ -272,7 +277,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-envs', type=int, default=16)
     parser.add_argument('--v-coeff', type=float, default=0.5)
     parser.add_argument('--ent-coeff', type=float, default=0.01)
-    parser.add_argument('--logdir', type=str, default='dqn')
+    parser.add_argument('--logdir', type=str, default='a2c')
     parser.add_argument('--load', type=str)
     parser.add_argument('--device', type=int, default='0')
     parser.add_argument('--gpu', action='store_true')
