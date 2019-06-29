@@ -18,19 +18,6 @@ from nnabla.parameter import get_parameter_or_create
 
 
 #------------------------------- neural network ------------------------------#
-def noisy_layer(x, out_size, eps_w, eps_b, name):
-    inpt_size = x.shape[1]
-    root_p = np.sqrt(inpt_size)
-    mu_init = UniformInitializer((-1.0 / root_p, 1.0 / root_p))
-    sig_init = ConstantInitializer(0.5 / root_p)
-    with nn.parameter_scope(name):
-        mu_w = get_parameter_or_create('mu_w', (inpt_size, out_size), mu_init)
-        sig_w = get_parameter_or_create('sig_w', (inpt_size, out_size), sig_init)
-        mu_b = get_parameter_or_create('mu_b', (out_size,), mu_init)
-        sig_b = get_parameter_or_create('sig_b', (out_size,), sig_init)
-    return F.affine(x, mu_w + sig_w * eps_w, mu_b + sig_b * eps_b)
-
-
 def sample_noise(inpt_size, out_size):
     _f = lambda x: F.sign(x) * F.pow_scalar(F.abs(x), 0.5)
     noise = _f(F.randn(shape=(inpt_size + out_size,)))
@@ -40,28 +27,38 @@ def sample_noise(inpt_size, out_size):
     return eps_w, eps_b
 
 
-def cnn_network(obs, num_actions, epsilon_w, epsilon_b, scope):
+def noisy_layer(x, out_size, name):
+    inpt_size = x.shape[1]
+    root_p = np.sqrt(inpt_size)
+    mu_init = UniformInitializer((-1.0 / root_p, 1.0 / root_p))
+    sig_init = ConstantInitializer(0.5 / root_p)
+    eps_w, eps_b = sample_noise(inpt_size, out_size)
+    with nn.parameter_scope(name):
+        mu_w = get_parameter_or_create('mu_w', (inpt_size, out_size), mu_init)
+        sig_w = get_parameter_or_create('sig_w', (inpt_size, out_size), sig_init)
+        mu_b = get_parameter_or_create('mu_b', (out_size,), mu_init)
+        sig_b = get_parameter_or_create('sig_b', (out_size,), sig_init)
+    return F.affine(x, mu_w + sig_w * eps_w, mu_b + sig_b * eps_b)
+
+
+def cnn_network(obs, num_actions, scope):
     with nn.parameter_scope(scope):
         out = PF.convolution(obs, 32, (8, 8), stride=(4, 4), name='conv1')
         out = F.relu(out)
         out = PF.convolution(out, 64, (4, 4), stride=(2, 2), name='conv2')
         out = F.relu(out)
         out = PF.convolution(out, 64, (3, 3), stride=(1, 1), name='conv3')
+        out = F.reshape(F.relu(out), (obs.shape[0], -1))
+        out = noisy_layer(out, 512, 'fc1')
         out = F.relu(out)
-        out = PF.affine(out, 512, name='fc1')
-        out = F.relu(out)
-        return noisy_layer(out, num_actions, epsilon_w, epsilon_b, 'output')
+        return noisy_layer(out, num_actions, 'output')
 
 
 class NoisyNetDQN:
     def __init__(self, num_actions, batch_size, gamma, lr):
-        self.eps_w, self.eps_b = sample_noise(512, num_actions)
-        self.t_eps_w, self.t_eps_b = sample_noise(512, num_actions)
-
         # inference
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
-        self.infer_q_t = cnn_network(infer_obs_t, num_actions, self.eps_w,
-                                     self.eps_b, 'q_func')
+        self.infer_q_t = cnn_network(infer_obs_t, num_actions, 'q_func')
 
         # training
         self.obs_t = obs_t = nn.Variable((batch_size, 4, 84, 84))
@@ -71,9 +68,8 @@ class NoisyNetDQN:
         self.dones_tp1 = dones_tp1 = nn.Variable((batch_size, 1))
 
         # training output
-        q_t = cnn_network(obs_t, num_actions, self.eps_w, self.eps_b, 'q_func')
-        q_tp1 = cnn_network(obs_tp1, num_actions, self.t_eps_w, self.t_eps_b,
-                            'target_q_func')
+        q_t = cnn_network(obs_t, num_actions, 'q_func')
+        q_tp1 = cnn_network(obs_tp1, num_actions, 'target_q_func')
 
         # select one dimension
         a_one_hot = F.one_hot(actions_t, (num_actions,))
