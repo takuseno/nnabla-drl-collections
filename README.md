@@ -15,7 +15,7 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 - [x] [Dueling DQN](https://arxiv.org/abs/1511.06581)
 - [x] [Categorical DQN](https://arxiv.org/abs/1707.06887)
 - [x] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
-- [ ] [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952)
+- [x] [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952) (Not tested)
 - [x] [Advantage Actor-Critic (A2C)](https://arxiv.org/abs/1602.01783)
 - [ ] [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 
