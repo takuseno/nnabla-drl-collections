@@ -11,6 +11,7 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 
 ## algorithms (discrete action-space)
 - [x] [Deep Q-Network (DQN)](https://www.nature.com/articles/nature14236)
+- [x] [Double DQN](https://arxiv.org/abs/1509.06461)
 - [x] [Dueling DQN](https://arxiv.org/abs/1511.06581)
 - [x] [Categorical DQN](https://arxiv.org/abs/1707.06887)
 - [x] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
