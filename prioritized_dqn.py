@@ -135,7 +135,7 @@ class Buffer:
 
     def update_priorities(self, indices, tds):
         for index, td in zip(indices, tds):
-            self.priorities[index] = td ** self.alpha
+            self.priorities[index] = np.abs(td) ** self.alpha
 #-----------------------------------------------------------------------------#
 
 #----------------------- epsilon-greedy exploration --------------------------#
