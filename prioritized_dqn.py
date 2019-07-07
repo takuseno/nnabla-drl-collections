@@ -95,7 +95,7 @@ class PrioritizedDQN:
             g = 10.0 * variable.g / max(np.sqrt(np.sum(variable.g ** 2)), 10.0)
             variable.g = g
         self.solver.update()
-        return td, loss
+        return np.reshape(td, (-1,)), loss
 
     def update_target(self):
         for key in self.target_params.keys():
