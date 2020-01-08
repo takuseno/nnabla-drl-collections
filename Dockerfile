@@ -1,4 +1,4 @@
-FROM nnabla/nnabla-ext-cuda:py36-cuda92-v1.0.17
+FROM nnabla/nnabla-ext-cuda:py36-cuda90-v1.4.0
 
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
