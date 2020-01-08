@@ -167,12 +167,13 @@ def get_deque():
     return deque(list(np.zeros((4, 84, 84), dtype=np.uint8)), maxlen=4)
 
 class AtariWrapper:
-    def __init__(self, env, render=False):
+    def __init__(self, env, episodic_life=False, render=False):
         self.env = env
         self.render = render
         self.queue = get_deque()
         self.observation_space = env.observation_space
         self.action_space = env.action_space
+        self.episodic_life = episodic_life
         self.lives = 0
         self.was_real_done = True
 
@@ -181,15 +182,16 @@ class AtariWrapper:
         self.queue.append(preprocess(obs))
         if self.render:
             self.env.render()
-        self.was_real_done = done
-        lives = self.env.unwrapped.ale.lives()
-        if lives < self.lives and lives > 0:
-            done = True
-        self.lives = lives
+        if self.episodic_life:
+            self.was_real_done = done
+            lives = self.env.unwrapped.ale.lives()
+            if lives < self.lives and lives > 0:
+                done = True
+            self.lives = lives
         return np.array(list(self.queue)), reward, done, {}
 
     def reset(self):
-        if self.was_real_done:
+        if not self.episodic_life or self.was_real_done:
             obs = self.env.reset()
         else:
             obs, _, _, _ = self.env.step(0)
@@ -278,8 +280,8 @@ def main(args):
         nn.set_default_context(ctx)
 
     # atari environment
-    env = AtariWrapper(gym.make(args.env), args.render)
-    eval_env = AtariWrapper(gym.make(args.env), args.render)
+    env = AtariWrapper(gym.make(args.env), True, args.render)
+    eval_env = AtariWrapper(gym.make(args.env), False, args.render)
     num_actions = env.action_space.n
 
     # action-value function built with neural network
@@ -305,6 +307,8 @@ def main(args):
             cumulative_reward = 0.0
             while not ter:
                 act = model.ensemble(pixel_to_float([obs]))
+                if np.random.random() < 0.05:
+                    act = np.random.randint(num_actions)
                 obs, rew, ter, _ = eval_env.step(act)
                 cumulative_reward += rew
             episode_rewards.append(cumulative_reward)
