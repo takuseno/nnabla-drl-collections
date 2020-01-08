@@ -32,7 +32,6 @@ def cnn_network(obs, num_actions, num_heads, scope):
                 q_values.append(PF.affine(h, num_actions, name='output'))
         return q_values
 
-
 class BootstrappedDQN:
     def __init__(self, num_actions, num_heads, batch_size, gamma, lr):
         self.num_actions = num_actions
@@ -163,10 +162,8 @@ def preprocess(obs):
     state = state[18:102, :]
     return state
 
-
 def get_deque():
     return deque(list(np.zeros((4, 84, 84), dtype=np.uint8)), maxlen=4)
-
 
 class AtariWrapper:
     def __init__(self, env, render=False):
@@ -205,7 +202,6 @@ class AtariWrapper:
 def pixel_to_float(obs):
     return np.array(obs, dtype=np.float32) / 255.0
 
-
 def train(model, buffer):
     experiences = buffer.sample()
     obss_t = []
@@ -224,7 +220,6 @@ def train(model, buffer):
     return model.train(pixel_to_float(obss_t), acts_t, rews_tp1,
                        pixel_to_float(obss_tp1), ters_tp1, weights)
 
-
 def train_loop(env, model, buffer, exploration, evaluate, logdir):
     monitor = Monitor(logdir)
     reward_monitor = MonitorSeries('reward', monitor, interval=1)
@@ -236,7 +231,6 @@ def train_loop(env, model, buffer, exploration, evaluate, logdir):
     step = 0
     while step <= 5 * 10 ** 7:
         obs_t = env.reset()
-        rew_t = 0.0
         ter_tp1 = False
         cumulative_reward = 0.0
         head = np.random.randint(model.num_heads)
@@ -255,7 +249,7 @@ def train_loop(env, model, buffer, exploration, evaluate, logdir):
             buffer.add(obs_t, act_t, clipped_rew_tp1, obs_tp1, ter_tp1, weight)
 
             # update parameters
-            if step > 10000 and step % 4 == 0:
+            if step > 50000 and step % 4 == 0:
                 loss = train(model, buffer)
                 loss_monitor.add(step, loss)
 
@@ -324,7 +318,6 @@ def main(args):
 
     # start training loop
     train_loop(env, model, buffer, exploration, evaluate, logdir)
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
