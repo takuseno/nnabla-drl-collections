@@ -95,7 +95,7 @@ class BootstrappedDQN:
         self.infer_all.forward(clear_buffer=True)
         votes = np.zeros(self.num_actions)
         for q_value in self.infer_qs_t:
-            votes[np.argmax(q_value[0])] += 1
+            votes[np.argmax(q_value.d[0])] += 1
         return np.argmax(votes)
 
     def train(self, obss_t, acts_t, rews_tp1, obss_tp1, ters_tp1, weights):
@@ -303,7 +303,7 @@ def main(args):
             ter = False
             cumulative_reward = 0.0
             while not ter:
-                act = model.ensemble([obs])
+                act = model.ensemble(pixel_to_float([obs]))
                 obs, rew, ter, _ = eval_env.step(act)
                 cumulative_reward += rew
             episode_rewards.append(cumulative_reward)
