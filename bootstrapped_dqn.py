@@ -104,7 +104,7 @@ class BootstrappedDQN:
         self.rews_tp1.d = np.array(rews_tp1)
         self.obss_tp1.d = np.array(obss_tp1)
         self.ters_tp1.d = np.array(ters_tp1)
-        self.weights = np.array(weights)
+        self.weights.d = np.array(weights)
         self.loss.forward()
         self.solver.zero_grad()
         self.loss.backward(clear_buffer=True)
@@ -126,6 +126,7 @@ class Buffer:
         self.buffer = deque(maxlen=maxlen)
 
     def add(self, obs_t, act_t, rew_tp1, obs_tp1, ter_tp1, weight):
+        ter_tp1 = 1.0 if ter_tp1 else 0.0
         experience = dict(obs_t=obs_t, act_t=[act_t],
                           rew_tp1=[rew_tp1], obs_tp1=obs_tp1,
                           ter_tp1=[ter_tp1], weight=weight)
