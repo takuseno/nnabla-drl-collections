@@ -16,6 +16,7 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 - [x] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
 - [x] [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952) (Not tested)
 - [x] [Categorical DQN](https://arxiv.org/abs/1707.06887)
+- [x] [Bootstrapped DQN](https://arxiv.org/abs/1602.04621) (Not tested)
 - [ ] [Rainbow](https://arxiv.org/abs/1710.02298)
 - [ ] [Quantile Regression DQN (QR DQN)](https://arxiv.org/abs/1710.10044)
 - [ ] [Implicit Quantile Networks (IQN)](https://arxiv.org/abs/1806.06923)
