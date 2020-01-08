@@ -35,6 +35,7 @@ def cnn_network(obs, num_actions, num_heads, scope):
 
 class BootstrappedDQN:
     def __init__(self, num_actions, num_heads, batch_size, gamma, lr):
+        self.num_actions = num_actions
         self.num_heads = num_heads
 
         # infer variable
@@ -42,14 +43,7 @@ class BootstrappedDQN:
         # inference output
         self.infer_qs_t = cnn_network(self.infer_obs_t, num_actions,
                                       num_heads, scope='q_func')
-        # ensemble output
-        stack = F.transpose(F.stack(*self.infer_qs_t), [1, 0, 2])
-        max_actions = F.max(stack, axis=2, only_index=True)
-        flatten_actions = F.one_hot(F.reshape(max_actions, [-1, 1]),
-                                    (num_actions,))
-        vote = F.sum(
-            F.reshape(flatten_actions, [-1, num_heads, num_actions]), axis=1)
-        self.ensemble_actions = F.max(vote, axis=1, only_index=True)
+        self.infer_all = F.sink(*self.infer_qs_t)
 
         # train variables
         self.obss_t = nn.Variable((batch_size, 4, 84, 84))
@@ -72,6 +66,7 @@ class BootstrappedDQN:
         # mask output
         q_t_selected = F.sum(stacked_qs_t * a_one_hot, axis=2)
         q_tp1_best = F.max(stacked_qs_tp1, axis=2)
+        q_tp1_best.need_grad = False
 
         # loss calculation
         y = self.rews_tp1 + gamma * q_tp1_best * (1.0 - self.ters_tp1)
@@ -98,8 +93,11 @@ class BootstrappedDQN:
 
     def ensemble(self, obs_t):
         self.infer_obs_t.d = np.array(obs_t)
-        self.ensemble_actions.forward(clear_buffer=True)
-        return self.ensemble_actions.d
+        self.infer_all.forward(clear_buffer=True)
+        votes = np.zeros(self.num_actions)
+        for q_value in self.infer_qs_t:
+            votes[np.argmax(q_value[0])] += 1
+        return np.argmax(votes)
 
     def train(self, obss_t, acts_t, rews_tp1, obss_tp1, ters_tp1, weights):
         self.obss_t.d = np.array(obss_t)
@@ -227,10 +225,11 @@ def train(model, buffer):
                        pixel_to_float(obss_tp1), ters_tp1, weights)
 
 
-def train_loop(env, model, buffer, exploration, logdir):
+def train_loop(env, model, buffer, exploration, evaluate, logdir):
     monitor = Monitor(logdir)
     reward_monitor = MonitorSeries('reward', monitor, interval=1)
     loss_monitor = MonitorSeries('loss', monitor, interval=10000)
+    eval_reward_monitor = MonitorSeries('eval_reward', monitor, interval=1)
     # copy parameters to target network
     model.update_target()
 
@@ -268,6 +267,7 @@ def train_loop(env, model, buffer, exploration, logdir):
             if step % 10 ** 6 == 0:
                 path = os.path.join(logdir, 'model_{}.h5'.format(step))
                 nn.save_parameters(path)
+                eval_reward_monitor.add(step, evaluate(step))
 
             step += 1
             cumulative_reward += rew_tp1
@@ -284,6 +284,7 @@ def main(args):
 
     # atari environment
     env = AtariWrapper(gym.make(args.env), args.render)
+    eval_env = AtariWrapper(gym.make(args.env), args.render)
     num_actions = env.action_space.n
 
     # action-value function built with neural network
@@ -299,6 +300,22 @@ def main(args):
     exploration = EpsilonGreedy(num_actions, args.epsilon, 0.01,
                                 args.schedule_duration)
 
+    # evaluation loop
+    def evaluate(step):
+        episode = 0
+        episode_rewards = []
+        while episode < 10:
+            obs = eval_env.reset()
+            ter = False
+            cumulative_reward = 0.0
+            while not ter:
+                act = model.ensemble([obs])
+                obs, rew, ter, _ = eval_env.step(act)
+                cumulative_reward += rew
+            episode_rewards.append(cumulative_reward)
+            episode += 1
+        return np.mean(episode_rewards)
+
     # prepare log directory
     date = datetime.now().strftime("%Y%m%d%H%M%S")
     logdir = os.path.join('logs', args.logdir + '_' + date)
@@ -306,7 +323,7 @@ def main(args):
         os.makedirs(logdir)
 
     # start training loop
-    train_loop(env, model, buffer, exploration, logdir)
+    train_loop(env, model, buffer, exploration, evaluate, logdir)
 
 
 if __name__ == '__main__':
