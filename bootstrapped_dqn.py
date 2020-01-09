@@ -77,10 +77,14 @@ class BootstrappedDQN:
         # weights and biases
         with nn.parameter_scope('q_func'):
             self.params = nn.get_parameters()
+            self.head_params = []
+            for i in range(10):
+                with nn.parameter_scope('head%d' % i):
+                    self.head_params.append(nn.get_parameters())
+            with nn.parameter_scope('shared'):
+                self.shared_params = nn.get_parameters()
         with nn.parameter_scope('target'):
             self.target_params = nn.get_parameters()
-        with nn.parameter_scope('q_func/shared'):
-            self.shared_params = nn.get_parameters()
 
         # set q function parameters to solver
         self.solver.set_parameters(self.params)
@@ -109,8 +113,13 @@ class BootstrappedDQN:
         self.solver.zero_grad()
         self.loss.backward(clear_buffer=True)
         # gradient normalization
-        for name, variable in self.shared_params.items():
-            variable.g = variable.g / self.num_heads
+        for variable in self.shared_params.values():
+            variable.g /= self.num_heads
+        # gradient clipping
+        for params in self.head_params:
+            for variable in params.values():
+                g = variable.g
+                variable.g = 10.0 * g / max(np.sum(np.sqrt(g ** 2)), 10.0)
         self.solver.update()
         return self.loss.d
 
