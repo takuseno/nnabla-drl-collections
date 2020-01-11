@@ -41,7 +41,7 @@ class BootstrappedDQN:
         self.infer_obs_t = nn.Variable((1, 4, 84, 84))
         # inference output
         self.infer_qs_t = cnn_network(self.infer_obs_t, num_actions,
-                                      num_heads, scope='q_func')
+                                      num_heads, 'q_func')
         self.infer_all = F.sink(*self.infer_qs_t)
 
         # train variables
@@ -53,9 +53,8 @@ class BootstrappedDQN:
         self.weights = nn.Variable((batch_size, num_heads))
 
         # training output
-        qs_t = cnn_network(self.obss_t, num_actions, num_heads, scope='q_func')
-        qs_tp1 = cnn_network(self.obss_tp1, num_actions, num_heads,
-                             scope='target')
+        qs_t = cnn_network(self.obss_t, num_actions, num_heads, 'q_func')
+        qs_tp1 = cnn_network(self.obss_tp1, num_actions, num_heads, 'target')
         stacked_qs_t = F.transpose(F.stack(*qs_t), [1, 0, 2])
         stacked_qs_tp1 = F.transpose(F.stack(*qs_tp1), [1, 0, 2])
 
@@ -69,7 +68,8 @@ class BootstrappedDQN:
 
         # loss calculation
         y = self.rews_tp1 + gamma * q_tp1_best * (1.0 - self.ters_tp1)
-        self.loss = F.mean(F.huber_loss(q_t_selected, y) * self.weights)
+        td = F.huber_loss(q_t_selected, y)
+        self.loss = F.mean(F.sum(td * self.weights, axis=1))
 
         # optimizer
         self.solver = S.RMSprop(lr, 0.95, 1e-2)
@@ -78,7 +78,7 @@ class BootstrappedDQN:
         with nn.parameter_scope('q_func'):
             self.params = nn.get_parameters()
             self.head_params = []
-            for i in range(10):
+            for i in range(self.num_heads):
                 with nn.parameter_scope('head%d' % i):
                     self.head_params.append(nn.get_parameters())
             with nn.parameter_scope('shared'):
@@ -340,7 +340,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lr', type=float, default=2.5e-4)
-    parser.add_argument('--buffer-size', type=int, default=10 ** 5)
+    parser.add_argument('--buffer-size', type=int, default=10 ** 6)
     parser.add_argument('--epsilon', type=float, default=1.0)
     parser.add_argument('--schedule-duration', type=int, default=10 ** 6)
     parser.add_argument('--logdir', type=str, default='dqn')
