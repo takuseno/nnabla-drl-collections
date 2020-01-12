@@ -114,12 +114,7 @@ class BootstrappedDQN:
         self.loss.backward(clear_buffer=True)
         # gradient normalization
         for variable in self.shared_params.values():
-            variable.g /= self.num_heads
-        # gradient clipping
-        for params in self.head_params:
-            for variable in params.values():
-                g = variable.g
-                variable.g = 10.0 * g / max(np.sum(np.sqrt(g ** 2)), 10.0)
+            variable.grad /= self.num_heads
         self.solver.update()
         return self.loss.d
 
