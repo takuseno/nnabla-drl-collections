@@ -156,7 +156,7 @@ def train_loop(env, model, buffer, exploration, logdir, eval_fn, args):
             # move environment
             obs_tp1, rew_tp1, ter_tp1, _ = env.step(act_t)
             # store transition
-            buffer.append(obs_t, act_t, rew_tp1, obs_tp1, ter_tp1)
+            buffer.append(obs_t, [act_t], rew_tp1, obs_tp1, ter_tp1)
 
             # update parameters
             if step > args.learning_start and step % 4 == 0:
