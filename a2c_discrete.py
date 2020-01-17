@@ -15,6 +15,7 @@ from nnabla.ext_utils import get_extension_context
 from common.log import prepare_directory
 from common.experiment import evaluate
 from common.env import AtariWrapper
+from dqn import pixel_to_float
 
 
 #------------------------------- neural network ------------------------------#
@@ -86,7 +87,7 @@ class A2C:
         return self.infer_pi_t.d, np.reshape(self.infer_value_t.d, (-1,))
 
     def evaluate(self, obs_t):
-        self.eval_obs_t.d = np.array([obs_t])
+        self.eval_obs_t.d = np.array(pixel_to_float([obs_t]))
         self.eval_pi_t.forward(clear_buffer=True)
         pi = self.eval_pi_t.d[0]
         return np.random.choice(pi.shape[0], p=pi)
@@ -135,10 +136,6 @@ class BatchEnv:
 #-----------------------------------------------------------------------------#
 
 #-------------------------- training loop ------------------------------------#
-def pixel_to_float(obs):
-    return np.array(obs, dtype=np.float32) / 255.0
-
-
 def compute_returns(gamma):
     def _compute(vals_t, rews_tp1, ters_tp1):
         V = vals_t[-1]
