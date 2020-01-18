@@ -11,53 +11,57 @@ import cv2
 
 from datetime import datetime
 from collections import deque
-from nnabla.monitor import Monitor, MonitorSeries
+from nnabla.monitor import Monitor
 from nnabla.ext_utils import get_extension_context
 from common.buffer import ReplayBuffer
-from common.log import prepare_directory
-from common.experiment import evaluate
+from common.log import prepare_monitor
+from common.experiment import evaluate, train
 from common.exploration import LinearlyDecayEpsilonGreedy
 from common.env import AtariWrapper
 from common.helper import clip_by_value
+from common.network import nature_head
 
 
-#------------------------------- neural network ------------------------------#
-def cnn_network(obs, num_actions, scope):
+def pixel_to_float(obs):
+    return np.array(obs, dtype=np.float32) / 255.0
+
+
+def q_function(obs, num_actions, scope):
     with nn.parameter_scope(scope):
-        out = PF.convolution(obs, 32, (8, 8), stride=(4, 4), name='conv1')
-        out = F.relu(out)
-        out = PF.convolution(out, 64, (4, 4), stride=(2, 2), name='conv2')
-        out = F.relu(out)
-        out = PF.convolution(out, 64, (3, 3), stride=(1, 1), name='conv3')
-        out = F.relu(out)
-        out = PF.affine(out, 512, name='fc1')
-        out = F.relu(out)
+        out = nature_head(obs)
         return PF.affine(out, num_actions, name='output')
 
-class DQN:
-    def __init__(self, num_actions, batch_size, gamma, lr):
-        self.num_actions = num_actions
 
+class DQN:
+    def __init__(self, q_function, num_actions, batch_size, gamma, lr):
+        self.q_function = q_function
+        self.num_actions = num_actions
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.lr = lr
+        self._build()
+
+    def _build(self):
         # infer variable
         self.infer_obs_t = infer_obs_t = nn.Variable((1, 4, 84, 84))
         # inference output
-        self.infer_q_t = self.cnn_network(infer_obs_t, num_actions,
-                                          scope='q_func')
+        self.infer_q_t = self.q_function(infer_obs_t, self.num_actions,
+                                         scope='q_func')
 
         # train variables
-        self.obss_t = nn.Variable((batch_size, 4, 84, 84))
-        self.acts_t = nn.Variable((batch_size, 1))
-        self.rews_tp1 = nn.Variable((batch_size, 1))
-        self.obss_tp1 = nn.Variable((batch_size, 4, 84, 84))
-        self.ters_tp1 = nn.Variable((batch_size, 1))
+        self.obss_t = nn.Variable((self.batch_size, 4, 84, 84))
+        self.acts_t = nn.Variable((self.batch_size, 1))
+        self.rews_tp1 = nn.Variable((self.batch_size, 1))
+        self.obss_tp1 = nn.Variable((self.batch_size, 4, 84, 84))
+        self.ters_tp1 = nn.Variable((self.batch_size, 1))
 
         # training output
-        q_t = self.cnn_network(self.obss_t, num_actions, scope='q_func')
-        q_tp1 = self.cnn_network(self.obss_tp1, num_actions,
-                                 scope='target_q_func')
+        q_t = self.q_function(self.obss_t, self.num_actions, scope='q_func')
+        q_tp1 = self.q_function(self.obss_tp1, self.num_actions,
+                                scope='target_q_func')
 
         # select one dimension
-        a_one_hot = F.one_hot(self.acts_t, (num_actions,))
+        a_one_hot = F.one_hot(self.acts_t, (self.num_actions,))
         q_t_selected = F.sum(q_t * a_one_hot, axis=1, keepdims=True)
         q_tp1_best = F.max(q_tp1, axis=1, keepdims=True)
 
@@ -65,11 +69,11 @@ class DQN:
         clipped_rews_tp1 = clip_by_value(self.rews_tp1, -1.0, 1.0)
 
         # loss calculation
-        y = clipped_rews_tp1 + gamma * q_tp1_best * (1.0 - self.ters_tp1)
+        y = clipped_rews_tp1 + self.gamma * q_tp1_best * (1.0 - self.ters_tp1)
         self.loss = F.mean(F.huber_loss(q_t_selected, y))
 
         # optimizer
-        self.solver = S.RMSprop(lr, 0.95, 1e-2)
+        self.solver = S.RMSprop(self.lr, 0.95, 1e-2)
 
         # weights and biases
         with nn.parameter_scope('q_func'):
@@ -81,14 +85,14 @@ class DQN:
         self.solver.set_parameters(self.params)
 
     def infer(self, obs_t):
-        self.infer_obs_t.d = np.array([obs_t])
+        self.infer_obs_t.d = np.array(pixel_to_float([obs_t]))
         self.infer_q_t.forward(clear_buffer=True)
         return np.argmax(self.infer_q_t.d[0])
 
     def evaluate(self, obs_t):
         if np.random.random() < 0.05:
             return np.random.randint(self.num_actions)
-        return self.infer(pixel_to_float(obs_t))
+        return self.infer(obs_t)
 
     def train(self, obss_t, acts_t, rews_tp1, obss_tp1, ters_tp1):
         self.obss_t.d = np.array(obss_t)
@@ -110,76 +114,29 @@ class DQN:
         for key in self.target_params.keys():
             self.target_params[key].data.copy_from(self.params[key].data)
 
-    def cnn_network(self, *args, **kwargs):
-        return cnn_network(*args, **kwargs)
-#-----------------------------------------------------------------------------#
+    def reset(self, step):
+        pass
 
-#-------------------------- training loop ------------------------------------#
-def pixel_to_float(obs):
-    return np.array(obs, dtype=np.float32) / 255.0
 
-def train(model, buffer):
-    experiences = buffer.sample()
-    obss_t = []
-    acts_t = []
-    rews_tp1 = []
-    obss_tp1 = []
-    ters_tp1 = []
-    for experience in experiences:
-        obss_t.append(experience['obs_t'])
-        acts_t.append(experience['act_t'])
-        rews_tp1.append(experience['rew_tp1'])
-        obss_tp1.append(experience['obs_tp1'])
-        ters_tp1.append(experience['ter_tp1'])
-    return model.train(pixel_to_float(obss_t), acts_t, rews_tp1,
-                       pixel_to_float(obss_tp1), ters_tp1)
+def update(model, buffer):
+    def _func(step):
+        experiences = buffer.sample()
+        obss_t = []
+        acts_t = []
+        rews_tp1 = []
+        obss_tp1 = []
+        ters_tp1 = []
+        for experience in experiences:
+            obss_t.append(experience['obs_t'])
+            acts_t.append(experience['act_t'])
+            rews_tp1.append(experience['rew_tp1'])
+            obss_tp1.append(experience['obs_tp1'])
+            ters_tp1.append(experience['ter_tp1'])
+        loss = model.train(pixel_to_float(obss_t), acts_t, rews_tp1,
+                           pixel_to_float(obss_tp1), ters_tp1)
+        return [loss]
+    return _func
 
-def train_loop(env, model, buffer, exploration, logdir, eval_fn, args):
-    monitor = Monitor(logdir)
-    reward_monitor = MonitorSeries('reward', monitor, interval=1)
-    eval_reward_monitor = MonitorSeries('eval_reward', monitor, interval=1)
-    loss_monitor = MonitorSeries('loss', monitor, interval=10000)
-    # copy parameters to target network
-    model.update_target()
-
-    step = 0
-    while step <= args.final_step:
-        obs_t = env.reset()
-        rew_t = 0.0
-        ter_tp1 = False
-        cumulative_reward = 0.0
-        while not ter_tp1:
-            # infer q values
-            act_t = model.infer(pixel_to_float(obs_t))
-            # epsilon-greedy exploration
-            act_t = exploration.get(step, act_t)
-            # move environment
-            obs_tp1, rew_tp1, ter_tp1, _ = env.step(act_t)
-            # store transition
-            buffer.append(obs_t, [act_t], rew_tp1, obs_tp1, ter_tp1)
-
-            # update parameters
-            if step > args.learning_start and step % 4 == 0:
-                loss = train(model, buffer)
-                loss_monitor.add(step, loss)
-
-            # synchronize target parameters with the latest parameters
-            if step % args.target_update == 0:
-                model.update_target()
-
-            # save parameters
-            if step % 10 ** 6 == 0:
-                path = os.path.join(logdir, 'model_{}.h5'.format(step))
-                nn.save_parameters(path)
-                eval_reward_monitor.add(step, np.mean(eval_fn()))
-
-            step += 1
-            cumulative_reward += rew_tp1
-            obs_t = obs_tp1
-
-        # record metrics
-        reward_monitor.add(step, cumulative_reward)
-#-----------------------------------------------------------------------------#
 
 def main(args):
     if args.gpu:
@@ -192,21 +149,26 @@ def main(args):
     num_actions = env.action_space.n
 
     # action-value function built with neural network
-    model = DQN(num_actions, args.batch_size, args.gamma, args.lr)
+    model = DQN(q_function, num_actions, args.batch_size, args.gamma, args.lr)
     if args.load is not None:
         nn.load_parameters(args.load)
+    model.update_target()
 
     buffer = ReplayBuffer(args.buffer_size, args.batch_size)
 
     exploration = LinearlyDecayEpsilonGreedy(num_actions, args.epsilon, 0.1,
                                              args.schedule_duration)
 
-    logdir = prepare_directory(args.logdir)
+    monitor = prepare_monitor(args.logdir)
+
+    update_fn = update(model, buffer)
 
     eval_fn = evaluate(eval_env, model, render=args.render)
 
-    # start training loop
-    train_loop(env, model, buffer, exploration, logdir, eval_fn, args)
+    train(env, model, buffer, exploration, monitor, update_fn, eval_fn,
+          args.final_step, args.update_start, args.update_interval,
+          args.target_update_interval, args.save_interval,
+          args.evaluate_interval, ['loss'])
 
 
 if __name__ == '__main__':
@@ -219,8 +181,11 @@ if __name__ == '__main__':
     parser.add_argument('--buffer-size', type=int, default=10 ** 5)
     parser.add_argument('--epsilon', type=float, default=1.0)
     parser.add_argument('--schedule-duration', type=int, default=10 ** 6)
-    parser.add_argument('--target-update', type=int, default=10 ** 4)
-    parser.add_argument('--learning-start', type=int, default=5 * 10 ** 4)
+    parser.add_argument('--target-update-interval', type=int, default=10 ** 4)
+    parser.add_argument('--update-start', type=int, default=5 * 10 ** 4)
+    parser.add_argument('--update-interval', type=int, default=4)
+    parser.add_argument('--evaluate-interval', type=int, default=10 ** 6)
+    parser.add_argument('--save-interval', type=int, default=10 ** 6)
     parser.add_argument('--final-step', type=int, default=10 ** 7)
     parser.add_argument('--logdir', type=str, default='dqn')
     parser.add_argument('--load', type=str)

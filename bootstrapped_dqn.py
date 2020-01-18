@@ -13,10 +13,15 @@ from datetime import datetime
 from collections import deque
 from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
+from common.log import prepare_monitor
+from common.experiment import evaluate, train
+from common.exploration import LinearlyDecayEpsilonGreedy
+from common.helper import clip_by_value
+from common.env import AtariWrapper
+from dqn import pixel_to_float
 
 
-#------------------------------- neural network ------------------------------#
-def cnn_network(obs, num_actions, num_heads, scope):
+def q_function(obs, num_actions, num_heads, scope):
     with nn.parameter_scope(scope):
         with nn.parameter_scope('shared'):
             out = PF.convolution(obs, 32, (8, 8), stride=(4, 4), name='conv1')
@@ -32,6 +37,7 @@ def cnn_network(obs, num_actions, num_heads, scope):
                 q_values.append(PF.affine(h, num_actions, name='output'))
         return q_values
 
+
 class BootstrappedDQN:
     def __init__(self, num_actions, num_heads, batch_size, gamma, lr):
         self.num_actions = num_actions
@@ -40,8 +46,8 @@ class BootstrappedDQN:
         # infer variable
         self.infer_obs_t = nn.Variable((1, 4, 84, 84))
         # inference output
-        self.infer_qs_t = cnn_network(self.infer_obs_t, num_actions,
-                                      num_heads, 'q_func')
+        self.infer_qs_t = q_function(self.infer_obs_t, num_actions,
+                                     num_heads, 'q_func')
         self.infer_all = F.sink(*self.infer_qs_t)
 
         # train variables
@@ -53,8 +59,8 @@ class BootstrappedDQN:
         self.weights = nn.Variable((batch_size, num_heads))
 
         # training output
-        qs_t = cnn_network(self.obss_t, num_actions, num_heads, 'q_func')
-        qs_tp1 = cnn_network(self.obss_tp1, num_actions, num_heads, 'target')
+        qs_t = q_function(self.obss_t, num_actions, num_heads, 'q_func')
+        qs_tp1 = q_function(self.obss_tp1, num_actions, num_heads, 'target')
         stacked_qs_t = F.transpose(F.stack(*qs_t), [1, 0, 2])
         stacked_qs_tp1 = F.transpose(F.stack(*qs_tp1), [1, 0, 2])
 
@@ -89,13 +95,15 @@ class BootstrappedDQN:
         # set q function parameters to solver
         self.solver.set_parameters(self.params)
 
-    def infer(self, obs_t, head):
-        self.infer_obs_t.d = np.array(obs_t)
-        self.infer_qs_t[head].forward(clear_buffer=True)
-        return self.infer_qs_t[head].d
+    def infer(self, obs_t):
+        self.infer_obs_t.d = np.array(pixel_to_float([obs_t]))
+        self.infer_qs_t[self.current_head].forward(clear_buffer=True)
+        return np.argmax(self.infer_qs_t[self.current_head].d[0])
 
-    def ensemble(self, obs_t):
-        self.infer_obs_t.d = np.array(obs_t)
+    def evaluate(self, obs_t):
+        if np.random.random() < 0.05:
+            return np.random.randint(self.num_actions)
+        self.infer_obs_t.d = np.array(pixel_to_float([obs_t]))
         self.infer_all.forward(clear_buffer=True)
         votes = np.zeros(self.num_actions)
         for q_value in self.infer_qs_t:
@@ -121,162 +129,50 @@ class BootstrappedDQN:
     def update_target(self):
         for key in self.target_params.keys():
             self.target_params[key].data.copy_from(self.params[key].data)
-#-----------------------------------------------------------------------------#
 
-#---------------------------- replay buffer ----------------------------------#
-class Buffer:
-    def __init__(self, maxlen=10 ** 5, batch_size=32):
+    def reset(self, step):
+        self.current_head = np.random.randint(self.num_heads)
+
+
+class BootstrapReplayBuffer:
+    def __init__(self, maxlen=10 ** 5, batch_size=32, num_heads=10):
         self.batch_size = batch_size
         self.buffer = deque(maxlen=maxlen)
+        self.num_heads = num_heads
 
-    def add(self, obs_t, act_t, rew_tp1, obs_tp1, ter_tp1, weight):
+    def append(self, obs_t, act_t, rew_tp1, obs_tp1, ter_tp1):
         ter_tp1 = 1.0 if ter_tp1 else 0.0
-        experience = dict(obs_t=obs_t, act_t=[act_t],
+        weight = np.random.randint(2, size=self.num_heads)
+        experience = dict(obs_t=obs_t, act_t=act_t,
                           rew_tp1=[rew_tp1], obs_tp1=obs_tp1,
                           ter_tp1=[ter_tp1], weight=weight)
         self.buffer.append(experience)
 
     def sample(self):
         return random.sample(self.buffer, self.batch_size)
-#-----------------------------------------------------------------------------#
 
-#----------------------- epsilon-greedy exploration --------------------------#
-class EpsilonGreedy:
-    def __init__(self, num_actions, init_value, final_value, duration):
-        self.num_actions = num_actions
-        self.base= init_value - final_value
-        self.init_value = init_value
-        self.final_value = final_value
-        self.duration = duration
 
-    def get(self, t, greedy_action):
-        decay = t / self.duration
-        if decay > 1.0:
-            decay = 1.0
-        epsilon = (1.0 - decay) * self.base + self.final_value
-        if np.random.random() < epsilon:
-            return np.random.randint(self.num_actions)
-        return greedy_action
-#-----------------------------------------------------------------------------#
+def update(model, buffer):
+    def _func(step):
+        experiences = buffer.sample()
+        obss_t = []
+        acts_t = []
+        rews_tp1 = []
+        obss_tp1 = []
+        ters_tp1 = []
+        weights = []
+        for experience in experiences:
+            obss_t.append(experience['obs_t'])
+            acts_t.append(experience['act_t'])
+            rews_tp1.append(experience['rew_tp1'])
+            obss_tp1.append(experience['obs_tp1'])
+            ters_tp1.append(experience['ter_tp1'])
+            weights.append(experience['weight'])
+        loss = model.train(pixel_to_float(obss_t), acts_t, rews_tp1,
+                           pixel_to_float(obss_tp1), ters_tp1, weights)
+        return [loss]
+    return _func
 
-#------------------------ environment wrapper --------------------------------#
-def preprocess(obs):
-    gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-    state = cv2.resize(gray, (210, 160))
-    state = cv2.resize(state, (84, 110))
-    state = state[18:102, :]
-    return state
-
-def get_deque():
-    return deque(list(np.zeros((4, 84, 84), dtype=np.uint8)), maxlen=4)
-
-class AtariWrapper:
-    def __init__(self, env, episodic_life=False, render=False):
-        self.env = env
-        self.render = render
-        self.queue = get_deque()
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-        self.episodic_life = episodic_life
-        self.lives = 0
-        self.was_real_done = True
-
-    def step(self, action):
-        obs, reward, done, info = self.env.step(action)
-        self.queue.append(preprocess(obs))
-        if self.render:
-            self.env.render()
-        if self.episodic_life:
-            self.was_real_done = done
-            lives = self.env.unwrapped.ale.lives()
-            if lives < self.lives and lives > 0:
-                done = True
-            self.lives = lives
-        return np.array(list(self.queue)), reward, done, {}
-
-    def reset(self):
-        if not self.episodic_life or self.was_real_done:
-            obs = self.env.reset()
-        else:
-            obs, _, _, _ = self.env.step(0)
-        self.lives = self.env.unwrapped.ale.lives()
-        self.queue = get_deque()
-        self.queue.append(preprocess(obs))
-        return np.array(list(self.queue))
-#-----------------------------------------------------------------------------#
-
-#-------------------------- training loop ------------------------------------#
-def pixel_to_float(obs):
-    return np.array(obs, dtype=np.float32) / 255.0
-
-def train(model, buffer):
-    experiences = buffer.sample()
-    obss_t = []
-    acts_t = []
-    rews_tp1 = []
-    obss_tp1 = []
-    ters_tp1 = []
-    weights = []
-    for experience in experiences:
-        obss_t.append(experience['obs_t'])
-        acts_t.append(experience['act_t'])
-        rews_tp1.append(experience['rew_tp1'])
-        obss_tp1.append(experience['obs_tp1'])
-        ters_tp1.append(experience['ter_tp1'])
-        weights.append(experience['weight'])
-    return model.train(pixel_to_float(obss_t), acts_t, rews_tp1,
-                       pixel_to_float(obss_tp1), ters_tp1, weights)
-
-def train_loop(env, model, buffer, exploration, evaluate, logdir):
-    monitor = Monitor(logdir)
-    reward_monitor = MonitorSeries('reward', monitor, interval=1)
-    loss_monitor = MonitorSeries('loss', monitor, interval=10000)
-    eval_reward_monitor = MonitorSeries('eval_reward', monitor, interval=1)
-    # copy parameters to target network
-    model.update_target()
-
-    step = 0
-    while step <= 5 * 10 ** 7:
-        obs_t = env.reset()
-        ter_tp1 = False
-        cumulative_reward = 0.0
-        head = np.random.randint(model.num_heads)
-        while not ter_tp1:
-            # infer q values
-            q_t = model.infer(pixel_to_float([obs_t]), head)[0]
-            # epsilon-greedy exploration
-            act_t = exploration.get(step, np.argmax(q_t))
-            # move environment
-            obs_tp1, rew_tp1, ter_tp1, _ = env.step(act_t)
-            # clip reward between [-1.0, 1.0]
-            clipped_rew_tp1 = np.clip(rew_tp1, -1.0, 1.0)
-            # sample weights from Ber(0.5)
-            weight = np.random.randint(2, size=model.num_heads)
-            # store transition
-            buffer.add(obs_t, act_t, clipped_rew_tp1, obs_tp1, ter_tp1, weight)
-
-            # update parameters
-            if step > 50000 and step % 4 == 0:
-                loss = train(model, buffer)
-                loss_monitor.add(step, loss)
-
-            # synchronize target parameters with the latest parameters
-            if step % 10000 == 0:
-                model.update_target()
-
-            # save parameters
-            if step % 10 ** 6 == 0:
-                path = os.path.join(logdir, 'model_{}.h5'.format(step))
-                nn.save_parameters(path)
-                eval_reward_monitor.add(step, evaluate(step))
-
-            step += 1
-            cumulative_reward += rew_tp1
-            obs_t = obs_tp1
-
-        # record metrics
-        reward_monitor.add(step, cumulative_reward)
-#-----------------------------------------------------------------------------#
 
 def main(args):
     if args.gpu:
@@ -293,40 +189,27 @@ def main(args):
                             args.gamma, args.lr)
     if args.load is not None:
         nn.load_parameters(args.load)
+    model.update_target()
 
     # replay buffer for experience replay
-    buffer = Buffer(args.buffer_size, args.batch_size)
+    buffer = BootstrapReplayBuffer(args.buffer_size, args.batch_size,
+                                   args.num_heads)
 
     # epsilon-greedy exploration
-    exploration = EpsilonGreedy(num_actions, args.epsilon, 0.01,
-                                args.schedule_duration)
+    exploration = LinearlyDecayEpsilonGreedy(num_actions, args.epsilon, 0.01,
+                                             args.schedule_duration)
 
-    # evaluation loop
-    def evaluate(step):
-        episode = 0
-        episode_rewards = []
-        while episode < 10:
-            obs = eval_env.reset()
-            ter = False
-            cumulative_reward = 0.0
-            while not ter:
-                act = model.ensemble(pixel_to_float([obs]))
-                if np.random.random() < 0.05:
-                    act = np.random.randint(num_actions)
-                obs, rew, ter, _ = eval_env.step(act)
-                cumulative_reward += rew
-            episode_rewards.append(cumulative_reward)
-            episode += 1
-        return np.mean(episode_rewards)
+    monitor = prepare_monitor(args.logdir)
 
-    # prepare log directory
-    date = datetime.now().strftime("%Y%m%d%H%M%S")
-    logdir = os.path.join('logs', args.logdir + '_' + date)
-    if not os.path.exists(logdir):
-        os.makedirs(logdir)
+    update_fn = update(model, buffer)
 
-    # start training loop
-    train_loop(env, model, buffer, exploration, evaluate, logdir)
+    eval_fn = evaluate(eval_env, model, render=args.render)
+
+    train(env, model, buffer, exploration, monitor, update_fn, eval_fn,
+          args.final_step, args.update_start, args.update_interval,
+          args.target_update_interval, args.save_interval,
+          args.evaluate_interval, ['loss'])
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -338,6 +221,12 @@ if __name__ == '__main__':
     parser.add_argument('--buffer-size', type=int, default=10 ** 6)
     parser.add_argument('--epsilon', type=float, default=1.0)
     parser.add_argument('--schedule-duration', type=int, default=10 ** 6)
+    parser.add_argument('--target-update-interval', type=int, default=10 ** 4)
+    parser.add_argument('--update-start', type=int, default=5 * 10 ** 4)
+    parser.add_argument('--update-interval', type=int, default=4)
+    parser.add_argument('--evaluate-interval', type=int, default=10 ** 6)
+    parser.add_argument('--save-interval', type=int, default=10 ** 6)
+    parser.add_argument('--final-step', type=int, default=10 ** 7)
     parser.add_argument('--logdir', type=str, default='dqn')
     parser.add_argument('--load', type=str)
     parser.add_argument('--device', type=int, default='0')

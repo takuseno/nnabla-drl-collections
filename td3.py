@@ -13,13 +13,12 @@ from collections import deque
 from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
 from common.buffer import ReplayBuffer
-from common.log import prepare_directory
-from common.experiment import evaluate
+from common.log import prepare_monitor
+from common.experiment import evaluate, train
 from common.helper import clip_by_value
-from common.noise import NormalNoise
+from common.exploration import NormalNoise
 
 
-#------------------------------- neural network ------------------------------#
 def q_network(obs, action, name):
     with nn.parameter_scope(name):
         out = PF.affine(obs, 400, name='fc1')
@@ -39,9 +38,8 @@ def policy_network(obs, action_size, name):
         out = F.relu(out)
         out = PF.affine(out, action_size, name='fc3')
     return F.tanh(out)
-#-----------------------------------------------------------------------------#
 
-#--------------------------- TD3 algorithm -----------------------------------#
+
 def _smoothing_target(policy_tp1, sigma, c):
     noise_shape = policy_tp1.shape
     smoothing_noise = F.randn(sigma=sigma, shape=noise_shape)
@@ -160,76 +158,37 @@ class TD3:
 
     def sync_target(self):
         self.sync_target_expr.forward(clear_buffer=True)
-#-----------------------------------------------------------------------------#
 
-#------------------------------ training loop --------------------------------#
-def train(model, buffer, update_actor):
-    experiences = buffer.sample()
-    obss_t = []
-    acts_t = []
-    rews_tp1 = []
-    obss_tp1 = []
-    ters_tp1 = []
-    for experience in experiences:
-        obss_t.append(experience['obs_t'])
-        acts_t.append(experience['act_t'])
-        rews_tp1.append(experience['rew_tp1'])
-        obss_tp1.append(experience['obs_tp1'])
-        ters_tp1.append(experience['ter_tp1'])
-    # train critic
-    critic_loss = model.train_critic(obss_t, acts_t, rews_tp1, obss_tp1,
-                                     ters_tp1)
-    # delayed policy update
-    if update_actor:
-        # train actor
-        actor_loss = model.train_actor(obss_t)
-        # update target
-        model.update_target()
-    else:
-        actor_loss = None
-    return critic_loss, actor_loss
+    def reset(self, step):
+        pass
 
 
-def train_loop(env, model, noise, buffer, logdir, final_step, d, eval_fn):
-    # monitors
-    monitor = Monitor(logdir)
-    actor_loss_monitor = MonitorSeries('actor_loss', monitor, interval=10000)
-    critic_loss_monitor = MonitorSeries('critic_loss', monitor, interval=10000)
-    reward_monitor = MonitorSeries('reward', monitor, interval=1)
-    eval_reward_monitor = MonitorSeries('eval_reward', monitor, interval=1)
-    # copy parameters to target networks
-    model.sync_target()
+def update(model, buffer, d):
+    def _func(step):
+        experiences = buffer.sample()
+        obss_t = []
+        acts_t = []
+        rews_tp1 = []
+        obss_tp1 = []
+        ters_tp1 = []
+        for experience in experiences:
+            obss_t.append(experience['obs_t'])
+            acts_t.append(experience['act_t'][0])
+            rews_tp1.append(experience['rew_tp1'])
+            obss_tp1.append(experience['obs_tp1'])
+            ters_tp1.append(experience['ter_tp1'])
+        # train critic
+        critic_loss = model.train_critic(obss_t, acts_t, rews_tp1, obss_tp1,
+                                         ters_tp1)
+        # delayed policy update
+        if step % d == 0:
+            # train actor
+            actor_loss = model.train_actor(obss_t)
+        else:
+            actor_loss = None
+        return critic_loss, actor_loss
+    return _func
 
-    step = 0
-    while step < final_step:
-        obs_t = env.reset()
-        ter = False
-        cumulative_reward = 0.0
-        while not ter:
-            # infer action
-            act_t = np.clip(model.infer(obs_t) + noise(), -1.0, 1.0)
-            # move environment
-            obs_tp1, rew_tp1, ter, _ = env.step(act_t)
-            # append transition
-            buffer.append(obs_t, act_t, rew_tp1, obs_tp1, ter)
-
-            # train
-            if buffer.size() > buffer.batch_size:
-                critic_loss, actor_loss = train(model, buffer, step % d == 0)
-                critic_loss_monitor.add(step, critic_loss)
-                if actor_loss is not None:
-                    actor_loss_monitor.add(step, actor_loss)
-
-            if step % 100000 == 0:
-                path = os.path.join(logdir, 'model_{}.h5'.format(step))
-                nn.save_parameters(path)
-                eval_reward_monitor.add(step, np.mean(eval_fn()))
-
-            obs_t = obs_tp1
-            step += 1
-            cumulative_reward += rew_tp1
-        reward_monitor.add(step, cumulative_reward)
-#-----------------------------------------------------------------------------#
 
 def main(args):
     env = gym.make(args.env)
@@ -249,18 +208,23 @@ def main(args):
     model = TD3(env.observation_space.shape, action_shape[0], args.batch_size,
                 args.critic_lr, args.actor_lr, args.tau, args.gamma,
                 args.target_reg_sigma, args.target_reg_clip)
+    model.sync_target()
 
     noise = NormalNoise(np.zeros(action_shape),
                         args.exploration_sigma + np.zeros(action_shape))
 
     buffer = ReplayBuffer(args.buffer_size, args.batch_size)
 
-    logdir = prepare_directory(args.logdir)
+    monitor = prepare_monitor(args.logdir)
+
+    update_fn = update(model, buffer, args.update_actor_freq)
 
     eval_fn = evaluate(eval_env, model, render=args.render)
 
-    train_loop(env, model, noise, buffer, logdir, args.final_step,
-               args.update_actor_freq, eval_fn)
+    train(env, model, buffer, noise, monitor, update_fn, eval_fn,
+          args.final_step, args.batch_size, 1, args.update_actor_freq,
+          args.save_interval, args.evaluate_interval,
+          ['critic_loss', 'actor_loss'])
 
 
 if __name__ == '__main__':
@@ -281,6 +245,8 @@ if __name__ == '__main__':
     parser.add_argument('--update-actor-freq', type=int, default=2)
     parser.add_argument('--buffer-size', type=int, default=10 ** 5)
     parser.add_argument('--final-step', type=int, default=10 ** 6)
+    parser.add_argument('--save-interval', type=int, default=10 ** 5)
+    parser.add_argument('--evaluate-interval', type=int, default=10 ** 5)
     parser.add_argument('--load', type=str)
     parser.add_argument('--render', action='store_true')
     args = parser.parse_args()

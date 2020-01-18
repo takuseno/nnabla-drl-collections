@@ -14,34 +14,22 @@ from collections import deque
 from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
 from common.buffer import ReplayBuffer
-from common.log import prepare_directory
-from common.experiment import evaluate
+from common.log import prepare_monitor
+from common.experiment import evaluate, train
 from common.exploration import LinearlyDecayEpsilonGreedy
 from common.env import AtariWrapper
-from dqn import DQN, train_loop
+from common.network import nature_head
+from dqn import DQN, update
 
 
-#------------------------------- neural network ------------------------------#
-def cnn_network(obs, num_actions, scope):
+def q_function(obs, num_actions, scope):
     with nn.parameter_scope(scope):
-        out = PF.convolution(obs, 32, (8, 8), stride=(4, 4), name='conv1')
-        out = F.relu(out)
-        out = PF.convolution(out, 64, (4, 4), stride=(2, 2), name='conv2')
-        out = F.relu(out)
-        out = PF.convolution(out, 64, (3, 3), stride=(1, 1), name='conv3')
-        out = F.relu(out)
-        out = PF.affine(out, 512, name='fc1')
-        out = F.relu(out)
+        out = nature_head(obs)
         advantages = PF.affine(out, num_actions, name='advantage')
         value = PF.affine(out, 1, name='value')
         baseline = F.mean(advantages, axis=1, keepdims=True)
         return value + advantages - baseline
 
-
-class DuelingDQN(DQN):
-    def cnn_network(self, *args, **kwargs):
-        return cnn_network(*args, **kwargs)
-#-----------------------------------------------------------------------------#
 
 def main(args):
     if args.gpu:
@@ -54,20 +42,26 @@ def main(args):
     num_actions = env.action_space.n
 
     # action-value function built with neural network
-    model = DuelingDQN(num_actions, args.batch_size, args.gamma, args.lr)
+    model = DQN(q_function, num_actions, args.batch_size, args.gamma, args.lr)
     if args.load is not None:
         nn.load_parameters(args.load)
+    model.update_target()
 
     buffer = ReplayBuffer(args.buffer_size, args.batch_size)
 
     exploration = LinearlyDecayEpsilonGreedy(num_actions, args.epsilon, 0.1,
                                              args.schedule_duration)
 
-    logdir = prepare_directory(args.logdir)
+    monitor = prepare_monitor(args.logdir)
+
+    update_fn = update(model, buffer)
 
     eval_fn = evaluate(eval_env, model, render=args.render)
 
-    train_loop(env, model, buffer, exploration, logdir, eval_fn, args)
+    train(env, model, buffer, exploration, monitor, update_fn, eval_fn,
+          args.final_step, args.update_start, args.update_interval,
+          args.target_update_interval, args.save_interval,
+          args.evaluate_interval, ['loss'])
 
 
 if __name__ == '__main__':
@@ -81,8 +75,11 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon', type=float, default=1.0)
     parser.add_argument('--schedule-duration', type=int, default=10 ** 6)
     parser.add_argument('--final-step', type=int, default=10 ** 7)
-    parser.add_argument('--target-update', type=int, default=10 ** 4)
-    parser.add_argument('--learning-start', type=int, default=5 * 10 ** 4)
+    parser.add_argument('--target-update-interval', type=int, default=10 ** 4)
+    parser.add_argument('--update-start', type=int, default=5 * 10 ** 4)
+    parser.add_argument('--update-interval', type=int, default=4)
+    parser.add_argument('--evaluate-interval', type=int, default=10 ** 6)
+    parser.add_argument('--save-interval', type=int, default=10 ** 6)
     parser.add_argument('--logdir', type=str, default='dueling_dqn')
     parser.add_argument('--load', type=str)
     parser.add_argument('--device', type=int, default='0')
