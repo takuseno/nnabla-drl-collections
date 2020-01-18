@@ -29,7 +29,6 @@ def train(env,
     step = 0
     while step <= final_step:
         obs_t = env.reset()
-        rew_t = 0.0
         ter_tp1 = False
         cumulative_reward = 0.0
         model.reset(step)
@@ -64,6 +63,7 @@ def train(env,
             step += 1
             cumulative_reward += rew_tp1
             obs_t = obs_tp1
+            time_monitor.add(step)
 
         # record metrics
         reward_monitor.add(step, cumulative_reward)
