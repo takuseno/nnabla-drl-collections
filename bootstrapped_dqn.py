@@ -180,8 +180,8 @@ def main(args):
         nn.set_default_context(ctx)
 
     # atari environment
-    env = AtariWrapper(gym.make(args.env), True, args.render)
-    eval_env = AtariWrapper(gym.make(args.env), False, args.render)
+    env = AtariWrapper(gym.make(args.env), args.seed, episodic=True)
+    eval_env = AtariWrapper(gym.make(args.env), 50, episodic=False)
     num_actions = env.action_space.n
 
     # action-value function built with neural network
