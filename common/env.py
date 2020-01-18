@@ -1,8 +1,6 @@
 import numpy as np
 import cv2
 
-from collections import deque
-
 
 def preprocess(obs):
     gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
@@ -11,8 +9,7 @@ def preprocess(obs):
     state = state[18:102, :]
     return state
 
-def get_deque():
-    return deque(list(np.zeros((4, 84, 84), dtype=np.uint8)), maxlen=4)
+    return 
 
 class AtariWrapper:
     def __init__(self,
@@ -25,7 +22,7 @@ class AtariWrapper:
                  with_screen=False):
         self.env = env
         self.rng = np.random.RandomState(seed)
-        self.queue = get_deque()
+        self.obs_stack = np.zeros((4, 84, 84), dtype=np.uint8)
         self.observation_space = env.observation_space
         self.action_space = env.action_space
         self.limit = limit
@@ -72,11 +69,12 @@ class AtariWrapper:
         obs, reward, done, info = self._max_and_skip_frames(action)
         if self.t == self.limit:
             done = True
-        self.queue.append(preprocess(obs))
+        self.obs_stack = np.roll(self.obs_stack, 1, axis=1)
+        self.obs_stack[0] = preprocess(obs)
         info = {}
         if self.with_screen:
             info['raw_obs'] = self.env.render('rgb_array')
-        return np.array(list(self.queue), dtype=np.uint8), reward, done, info
+        return self.obs_stack.copy(), reward, done, info
 
     def _reset_with_episodic_life(self):
         if not self.episodic or self.was_real_done:
@@ -96,10 +94,11 @@ class AtariWrapper:
                     obs = self._reset_with_episodic_life()
 
         self.lives = self.env.unwrapped.ale.lives()
-        self.queue = get_deque()
-        self.queue.append(preprocess(obs))
+        self.obs_stack.fill(0)
+        self.obs_stack = np.roll(self.obs_stack, 1, axis=1)
+        self.obs_stack[0] = preprocess(obs)
         self.t = 0
-        return np.array(list(self.queue), dtype=np.uint8)
+        return self.obs_stack.copy()
 
     def render(self):
         self.env.render()
