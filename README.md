@@ -1,7 +1,6 @@
 # NNabla DRL Collections
 Single file deep reinforcement learning implementations with NNabla.
 All algorithms are written in 300 lines.
-As each file does not have any dependencies among this repository, you can run all the algorithms just by copying one of them to anywhere you want.
 
 ## install
 ```
