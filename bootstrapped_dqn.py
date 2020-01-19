@@ -34,34 +34,48 @@ def q_function(obs, num_actions, num_heads, scope):
 
 
 class BootstrappedDQN:
-    def __init__(self, num_actions, num_heads, batch_size, gamma, lr):
+    def __init__(self,
+                 q_function,
+                 num_actions,
+                 num_heads,
+                 batch_size,
+                 gamma,
+                 lr):
+        self.q_function = q_function
         self.num_actions = num_actions
         self.num_heads = num_heads
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.lr = lr
+        self._build()
 
+    def _build(self):
         # infer variable
         self.infer_obs_t = nn.Variable((1, 4, 84, 84))
         # inference output
-        self.infer_qs_t = q_function(self.infer_obs_t, num_actions,
-                                     num_heads, 'q_func')
+        self.infer_qs_t = self.q_function(self.infer_obs_t, self.num_actions,
+                                          self.num_heads, 'q_func')
         self.infer_all = F.sink(*self.infer_qs_t)
 
         # train variables
-        self.obss_t = nn.Variable((batch_size, 4, 84, 84))
-        self.acts_t = nn.Variable((batch_size, 1))
-        self.rews_tp1 = nn.Variable((batch_size, 1))
-        self.obss_tp1 = nn.Variable((batch_size, 4, 84, 84))
-        self.ters_tp1 = nn.Variable((batch_size, 1))
-        self.weights = nn.Variable((batch_size, num_heads))
+        self.obss_t = nn.Variable((self.batch_size, 4, 84, 84))
+        self.acts_t = nn.Variable((self.batch_size, 1))
+        self.rews_tp1 = nn.Variable((self.batch_size, 1))
+        self.obss_tp1 = nn.Variable((self.batch_size, 4, 84, 84))
+        self.ters_tp1 = nn.Variable((self.batch_size, 1))
+        self.weights = nn.Variable((self.batch_size, self.num_heads))
 
         # training output
-        qs_t = q_function(self.obss_t, num_actions, num_heads, 'q_func')
-        qs_tp1 = q_function(self.obss_tp1, num_actions, num_heads, 'target')
+        qs_t = self.q_function(self.obss_t, self.num_actions, self.num_heads,
+                               'q_func')
+        qs_tp1 = q_function(self.obss_tp1, self.num_actions, self.num_heads,
+                            'target')
         stacked_qs_t = F.transpose(F.stack(*qs_t), [1, 0, 2])
         stacked_qs_tp1 = F.transpose(F.stack(*qs_tp1), [1, 0, 2])
 
         # select one dimension
-        a_one_hot = F.reshape(
-            F.one_hot(self.acts_t, (num_actions,)), (-1, 1, num_actions))
+        a_one_hot = F.reshape(F.one_hot(self.acts_t, (self.num_actions,)),
+                              (-1, 1, self.num_actions))
         # mask output
         q_t_selected = F.sum(stacked_qs_t * a_one_hot, axis=2)
         q_tp1_best = F.max(stacked_qs_tp1, axis=2)
@@ -71,12 +85,12 @@ class BootstrappedDQN:
         clipped_rews_tp1 = clip_by_value(self.rews_tp1, -1.0, 1.0)
 
         # loss calculation
-        y = clipped_rews_tp1 + gamma * q_tp1_best * (1.0 - self.ters_tp1)
+        y = clipped_rews_tp1 + self.gamma * q_tp1_best * (1.0 - self.ters_tp1)
         td = F.huber_loss(q_t_selected, y)
         self.loss = F.mean(F.sum(td * self.weights, axis=1))
 
         # optimizer
-        self.solver = S.RMSprop(lr, 0.95, 1e-2)
+        self.solver = S.RMSprop(self.lr, 0.95, 1e-2)
 
         # weights and biases
         with nn.parameter_scope('q_func'):
@@ -183,8 +197,8 @@ def main(args):
     num_actions = env.action_space.n
 
     # action-value function built with neural network
-    model = BootstrappedDQN(num_actions, args.num_heads, args.batch_size,
-                            args.gamma, args.lr)
+    model = BootstrappedDQN(q_function, num_actions, args.num_heads,
+                            args.batch_size, args.gamma, args.lr)
     if args.load is not None:
         nn.load_parameters(args.load)
     model.update_target()

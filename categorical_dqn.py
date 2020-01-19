@@ -29,8 +29,15 @@ def q_function(obs, num_actions, min_v, max_v, num_bins, scope):
 
 
 class CategoricalDQN(DQN):
-    def __init__(self, q_function, num_actions, min_v, max_v, num_bins,
-                 batch_size, gamma, lr):
+    def __init__(self,
+                 q_function,
+                 num_actions,
+                 min_v,
+                 max_v,
+                 num_bins,
+                 batch_size,
+                 gamma,
+                 lr):
         self.min_v = min_v
         self.max_v = max_v
         self.num_bins = num_bins
