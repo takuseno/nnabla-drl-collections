@@ -43,33 +43,43 @@ class DDPG:
                  actor_lr,
                  tau,
                  gamma):
+        self.obs_shape = obs_shape
+        self.action_size = action_size
+        self.batch_size = batch_size
+        self.critic_lr = critic_lr
+        self.actor_lr = actor_lr
+        self.tau = tau
+        self.gamma = gamma
+        self._build()
+
+    def _build(self):
         # inference
-        self.infer_obs_t = nn.Variable((1,) + obs_shape)
+        self.infer_obs_t = nn.Variable((1,) + self.obs_shape)
 
         with nn.parameter_scope('trainable'):
-            self.infer_policy_t = policy_network(
-                self.infer_obs_t, action_size, 'actor')
+            self.infer_policy_t = policy_network(self.infer_obs_t,
+                                                 self.action_size, 'actor')
 
         # training
-        self.obss_t = nn.Variable((batch_size,) + obs_shape)
-        self.acts_t = nn.Variable((batch_size, action_size))
-        self.rews_tp1 = nn.Variable((batch_size, 1))
-        self.obss_tp1 = nn.Variable((batch_size,) + obs_shape)
-        self.ters_tp1 = nn.Variable((batch_size, 1))
+        self.obss_t = nn.Variable((self.batch_size,) + self.obs_shape)
+        self.acts_t = nn.Variable((self.batch_size, self.action_size))
+        self.rews_tp1 = nn.Variable((self.batch_size, 1))
+        self.obss_tp1 = nn.Variable((self.batch_size,) + self.obs_shape)
+        self.ters_tp1 = nn.Variable((self.batch_size, 1))
 
         # critic training
         with nn.parameter_scope('trainable'):
             q_t = q_network(self.obss_t, self.acts_t, 'critic')
         with nn.parameter_scope('target'):
-            policy_tp1 = policy_network(
-                self.obss_tp1, action_size, 'actor')
+            policy_tp1 = policy_network(self.obss_tp1, self.action_size,
+                                        'actor')
             q_tp1 = q_network(self.obss_tp1, policy_tp1, 'critic')
-        y = self.rews_tp1 + gamma * q_tp1 * (1.0 - self.ters_tp1)
+        y = self.rews_tp1 + self.gamma * q_tp1 * (1.0 - self.ters_tp1)
         self.critic_loss = F.mean(F.squared_error(q_t, y))
 
         # actor training
         with nn.parameter_scope('trainable'):
-            policy_t = policy_network(self.obss_t, action_size, 'actor')
+            policy_t = policy_network(self.obss_t, self.action_size, 'actor')
             q_t_with_actor = q_network(self.obss_t, policy_t, 'critic')
         self.actor_loss = -F.mean(q_t_with_actor)
 
@@ -81,9 +91,9 @@ class DDPG:
                 actor_params = nn.get_parameters()
 
         # setup optimizers
-        self.critic_solver = S.Adam(critic_lr)
+        self.critic_solver = S.Adam(self.critic_lr)
         self.critic_solver.set_parameters(critic_params)
-        self.actor_solver = S.Adam(actor_lr)
+        self.actor_solver = S.Adam(self.actor_lr)
         self.actor_solver.set_parameters(actor_params)
 
         with nn.parameter_scope('trainable'):
@@ -96,7 +106,8 @@ class DDPG:
         sync_targets = []
         for key, src in trainable_params.items():
             dst = target_params[key]
-            update_targets.append(F.assign(dst, (1.0 - tau) * dst + tau * src))
+            updated_dst = (1.0 - self.tau) * dst + self.tau * src
+            update_targets.append(F.assign(dst, updated_dst))
             sync_targets.append(F.assign(dst, src))
         self.update_target_expr = F.sink(*update_targets)
         self.sync_target_expr = F.sink(*sync_targets)
