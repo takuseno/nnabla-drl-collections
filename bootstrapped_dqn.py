@@ -165,7 +165,7 @@ class BootstrapReplayBuffer:
         return random.sample(self.buffer, self.batch_size)
 
 
-def update(model, buffer):
+def update(model, buffer, target_update_interval):
     def _func(step):
         experiences = buffer.sample()
         obss_t = []
@@ -183,6 +183,10 @@ def update(model, buffer):
             weights.append(experience['weight'])
         loss = model.train(pixel_to_float(obss_t), acts_t, rews_tp1,
                            pixel_to_float(obss_tp1), ters_tp1, weights)
+
+        if step % target_update_interval == 0:
+            model.update_target()
+
         return [loss]
     return _func
 
