@@ -3,15 +3,10 @@ import nnabla as nn
 import nnabla.parametric_functions as PF
 import nnabla.functions as F
 import nnabla.solvers as S
-import random
 import argparse
 import gym
-import os
-import cv2
 
-from datetime import datetime
 from collections import deque
-from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
 from common.log import prepare_monitor
 from common.experiment import evaluate, train
@@ -72,8 +67,11 @@ class BootstrappedDQN:
         q_tp1_best = F.max(stacked_qs_tp1, axis=2)
         q_tp1_best.need_grad = False
 
+        # reward clipping
+        clipped_rews_tp1 = clip_by_value(self.rews_tp1, -1.0, 1.0)
+
         # loss calculation
-        y = self.rews_tp1 + gamma * q_tp1_best * (1.0 - self.ters_tp1)
+        y = clipped_rews_tp1 + gamma * q_tp1_best * (1.0 - self.ters_tp1)
         td = F.huber_loss(q_t_selected, y)
         self.loss = F.mean(F.sum(td * self.weights, axis=1))
 
@@ -214,6 +212,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--env', type=str, default='BreakoutDeterministic-v4')
+    parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num-heads', type=int, default=10)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--gamma', type=float, default=0.99)
