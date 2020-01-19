@@ -3,16 +3,10 @@ import nnabla as nn
 import nnabla.parametric_functions as PF
 import nnabla.functions as F
 import nnabla.solvers as S
-import random
 import argparse
 import gym
-import os
-import cv2
 
-from datetime import datetime
-from collections import deque
 from nnabla.initializer import ConstantInitializer, UniformInitializer
-from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
 from nnabla.parameter import get_parameter_or_create
 from common.buffer import ReplayBuffer

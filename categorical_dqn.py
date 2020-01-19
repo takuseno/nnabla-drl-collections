@@ -3,15 +3,9 @@ import nnabla as nn
 import nnabla.parametric_functions as PF
 import nnabla.functions as F
 import nnabla.solvers as S
-import random
 import argparse
 import gym
-import os
-import cv2
 
-from datetime import datetime
-from collections import deque
-from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
 from common.buffer import ReplayBuffer
 from common.log import prepare_monitor
@@ -22,7 +16,7 @@ from common.network import nature_head
 from common.env import AtariWrapper
 from dqn import DQN, update
 
-#------------------------------- neural network ------------------------------#
+
 def q_function(obs, num_actions, min_v, max_v, num_bins, scope):
     with nn.parameter_scope(scope):
         out = nature_head(obs)

@@ -4,13 +4,8 @@ import nnabla.functions as F
 import nnabla.parametric_functions as PF
 import nnabla.solvers as S
 import argparse
-import random
-import os
 import gym
 
-from datetime import datetime
-from collections import deque
-from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
 from common.buffer import ReplayBuffer
 from common.log import prepare_monitor
