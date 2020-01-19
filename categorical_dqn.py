@@ -100,7 +100,7 @@ class CategoricalDQN(DQN):
         m = F.sum(m_l * l_mask + m_u * u_mask, axis=1)
         m.need_grad = False
 
-        self.loss = -F.mean(F.sum(m * F.log(probs_t_selected + 1e-5), axis=1))
+        self.loss = -F.mean(F.sum(m * F.log(probs_t_selected + 1e-10), axis=1))
 
         # optimizer
         self.solver = S.RMSprop(self.lr, 0.95, 1e-2)
