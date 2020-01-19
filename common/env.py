@@ -69,7 +69,7 @@ class AtariWrapper:
         obs, reward, done, info = self._max_and_skip_frames(action)
         if self.t == self.limit:
             done = True
-        self.obs_stack = np.roll(self.obs_stack, 1, axis=1)
+        self.obs_stack = np.roll(self.obs_stack, 1, axis=0)
         self.obs_stack[0] = preprocess(obs)
         info = {}
         if self.with_screen:
@@ -95,7 +95,7 @@ class AtariWrapper:
 
         self.lives = self.env.unwrapped.ale.lives()
         self.obs_stack.fill(0)
-        self.obs_stack = np.roll(self.obs_stack, 1, axis=1)
+        self.obs_stack = np.roll(self.obs_stack, 1, axis=0)
         self.obs_stack[0] = preprocess(obs)
         self.t = 0
         return self.obs_stack.copy()
