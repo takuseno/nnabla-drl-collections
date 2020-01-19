@@ -158,6 +158,10 @@ def update(model, buffer):
                                          ters_tp1)
         # train actor
         actor_loss = model.train_actor(obss_t)
+
+        # update target parameters
+        model.update_target()
+
         return critic_loss, actor_loss
     return _func
 
@@ -193,7 +197,7 @@ def main(args):
     eval_fn = evaluate(eval_env, model, render=args.render)
 
     train(env, model, buffer, noise, monitor, update_fn, eval_fn,
-          args.final_step, args.batch_size, 1, 1, args.save_interval,
+          args.final_step, args.batch_size, 1, args.save_interval,
           args.evaluate_interval, ['critic_loss', 'actor_loss'])
 
 

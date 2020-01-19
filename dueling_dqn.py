@@ -48,14 +48,13 @@ def main(args):
 
     monitor = prepare_monitor(args.logdir)
 
-    update_fn = update(model, buffer)
+    update_fn = update(model, buffer, args.target_update_interval)
 
     eval_fn = evaluate(eval_env, model, render=args.render)
 
     train(env, model, buffer, exploration, monitor, update_fn, eval_fn,
           args.final_step, args.update_start, args.update_interval,
-          args.target_update_interval, args.save_interval,
-          args.evaluate_interval, ['loss'])
+          args.save_interval, args.evaluate_interval, ['loss'])
 
 
 if __name__ == '__main__':

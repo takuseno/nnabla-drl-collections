@@ -15,7 +15,6 @@ def train(env,
           final_step,
           update_start,
           update_interval,
-          target_update_interval,
           save_interval,
           evaluate_interval,
           loss_labels=[]):
@@ -47,10 +46,6 @@ def train(env,
                 for i, loss in enumerate(update_fn(step)):
                     if loss is not None:
                         loss_monitors[i].add(step, loss)
-
-            # synchronize target parameters with the latest parameters
-            if step % target_update_interval == 0:
-                model.update_target()
 
             # save parameters
             if step % save_interval == 0:

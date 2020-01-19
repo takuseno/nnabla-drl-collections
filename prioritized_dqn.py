@@ -124,7 +124,7 @@ class PrioritizedReplayBuffer:
         return len(self.buffer)
 
 
-def update(model, buffer):
+def update(model, buffer, target_update_interval):
     def _func(step):
         indices, experiences, weights = buffer.sample()
         obss_t = []
@@ -141,6 +141,10 @@ def update(model, buffer):
         td, loss = model.train(pixel_to_float(obss_t), acts_t, rews_tp1,
                                pixel_to_float(obss_tp1), ters_tp1, weights)
         buffer.update_priorities(indices, td)
+
+        if step % target_update_interval == 0:
+            model.update_target()
+
         return [loss]
     return _func
 
@@ -171,14 +175,13 @@ def main(args):
 
     monitor = prepare_monitor(args.logdir)
 
-    update_fn = update(model, buffer)
+    update_fn = update(model, buffer, args.target_update_interval)
 
     eval_fn = evaluate(eval_env, model, render=args.render)
 
     train(env, model, buffer, exploration, monitor, update_fn, eval_fn,
           args.final_step, args.update_start, args.update_interval,
-          args.target_update_interval, args.save_interval,
-          args.evaluate_interval, ['loss'])
+          args.save_interval, args.evaluate_interval, ['loss'])
 
 
 if __name__ == '__main__':
