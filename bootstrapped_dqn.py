@@ -5,6 +5,7 @@ import nnabla.functions as F
 import nnabla.solvers as S
 import argparse
 import gym
+import random
 
 from collections import deque
 from nnabla.ext_utils import get_extension_context
