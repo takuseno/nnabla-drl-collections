@@ -100,6 +100,7 @@ class PrioritizedReplayBuffer:
         self.index = (self.index + 1) % self.maxlen
 
         # add transition
+        ter_tp1 = 1.0 if ter_tp1 else 0.0
         experience = dict(obs_t=obs_t, act_t=act_t, rew_tp1=[rew_tp1],
                           obs_tp1=obs_tp1, ter_tp1=[ter_tp1])
         self.buffer.append(experience)
@@ -117,8 +118,7 @@ class PrioritizedReplayBuffer:
         return indices, experiences, normalized_weights
 
     def update_priorities(self, indices, tds):
-        for index, td in zip(indices, tds):
-            self.priorities[index] = np.abs(td) ** self.alpha
+        self.priorities[indices] = np.abs(tds) ** self.alpha
 
     def size(self):
         return len(self.buffer)
