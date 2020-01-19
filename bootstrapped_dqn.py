@@ -229,7 +229,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env', type=str, default='BreakoutDeterministic-v4')
+    parser.add_argument('--env', type=str, default='BreakoutNoFrameskip-v4')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num-heads', type=int, default=10)
     parser.add_argument('--batch-size', type=int, default=32)

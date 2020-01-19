@@ -16,7 +16,6 @@ from common.env import AtariWrapper
 from dqn import DQN, q_function, pixel_to_float
 
 
-#------------------------------- neural network ------------------------------#
 class PrioritizedDQN(DQN):
     def _build(self):
         # infer variable
@@ -186,7 +185,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--env', type=str, default='BreakoutDeterministic-v4')
+    parser.add_argument('--env', type=str, default='BreakoutNoFrameskip-v4')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--gamma', type=float, default=0.99)
