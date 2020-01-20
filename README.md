@@ -13,7 +13,7 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 - [x] [Double DQN](https://arxiv.org/abs/1509.06461)
 - [x] [Dueling DQN](https://arxiv.org/abs/1511.06581)
 - [x] [NoisyNet-DQN](https://arxiv.org/abs/1706.10295)
-- [x] [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952) (Not tested)
+- [x] [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952)
 - [x] [Categorical DQN](https://arxiv.org/abs/1707.06887)
 - [x] [Bootstrapped DQN](https://arxiv.org/abs/1602.04621)
 - [ ] [Rainbow](https://arxiv.org/abs/1710.02298)
