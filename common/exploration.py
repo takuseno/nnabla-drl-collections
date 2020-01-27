@@ -71,3 +71,11 @@ class NormalNoise:
 
     def reset(self):
         pass
+
+
+class EmptyNoise:
+    def get(self, t, greedy_action):
+        return greedy_action
+
+    def reset(self):
+        pass
