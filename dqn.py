@@ -97,10 +97,7 @@ class DQN:
         self.loss.forward()
         self.solver.zero_grad()
         self.loss.backward(clear_buffer=True)
-        # gradient clipping by norm
-        for name, variable in self.params.items():
-            g = 10.0 * variable.g / max(np.sqrt(np.sum(variable.g ** 2)), 10.0)
-            variable.g = g
+        self.solver.clip_grad_by_norm(10.0)
         self.solver.update()
         return self.loss.d
 
