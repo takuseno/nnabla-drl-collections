@@ -3,10 +3,13 @@ import nnabla as nn
 import nnabla.functions as F
 import nnabla.parametric_functions as PF
 import nnabla.solvers as S
+import nnabla.random as random
+import math
 import argparse
 import gym
 
 from nnabla.ext_utils import get_extension_context
+from nnabla.initializer import BaseInitializer
 from common.buffer import ReplayBuffer
 from common.log import prepare_monitor
 from common.experiment import evaluate, train
@@ -34,18 +37,21 @@ class MultivariateNormal:
         # to avoid no parent error
         return F.identity(self.scale)
 
+    @property
+    def d(self):
+        return self.scale.shape[-1]
+
     def variance(self):
         diag = self._diag_scale()
         return F.batch_matmul(diag, diag, False, True)
 
     def prob(self, x):
         k = self.loc.shape[1]
-        z = 1.0 / ((2 * np.pi) ** k * F.batch_det(self._diag_scale())) ** 0.5
-        diff = F.reshape(x - self.mean(), self.loc.shape + (1,), False)
-        inv = F.batch_inv(self._diag_scale())
-        y = F.batch_matmul(diff, inv, True, False)
-        norm = F.reshape(F.batch_matmul(y, diff, False, False), (-1,), False)
-        return z * F.exp(-0.5 * norm)
+        diff = F.reshape(x - self.mean(), self.loc.shape + (1,))
+        y = F.batch_matmul(F.batch_inv(self._diag_scale()), diff, False)
+        Z = (2 * np.pi) ** (0.5 * k) * F.abs(F.batch_det(self._diag_scale()))
+        norm = F.pow_scalar(F.sum(y ** 2, axis=[1, 2]), 0.5)
+        return F.exp(-0.5 * norm) / Z
 
     def entropy(self):
         det = F.batch_det(2.0 * np.pi * np.e * self._diag_scale())
@@ -61,34 +67,47 @@ class MultivariateNormal:
         return self.mean() + self.scale * eps
 
 
+class XavierInitializer(BaseInitializer):
+    def __init__(self, rng=None):
+        if rng is None:
+            rng = random.prng
+        self.rng = rng
+
+    def __call__(self, shape):
+        var = 1.0 / shape[0]
+        return self.rng.randn(*shape) * var
+
+
 def q_network(obs, action, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 256, name='fc1')
+        out = PF.affine(obs, 256, name='fc1', w_init=XavierInitializer())
         out = F.relu(out)
         out = F.concatenate(out, action, axis=1)
-        out = PF.affine(out, 256, name='fc2')
+        out = PF.affine(out, 256, name='fc2', w_init=XavierInitializer())
         out = F.relu(out)
-        return PF.affine(out, 1, name='fc3')
+        return PF.affine(out, 1, name='fc3', w_init=XavierInitializer())
 
 
 def policy_network(obs, action_size, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 256, name='fc1')
+        out = PF.affine(obs, 256, name='fc1', w_init=XavierInitializer())
         out = F.relu(out)
-        out = PF.affine(out, 256, name='fc2')
+        out = PF.affine(out, 256, name='fc2', w_init=XavierInitializer())
         out = F.relu(out)
-        mean = PF.affine(out, action_size, name='mean')
-        logstd = PF.affine(out, action_size, name='logstd')
+        mean = PF.affine(out, action_size, name='mean',
+                         w_init=XavierInitializer())
+        logstd = PF.affine(out, action_size, name='logstd',
+                           w_init=XavierInitializer())
     return MultivariateNormal(mean, F.exp(logstd))
 
 
 def v_network(obs, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 256, name='fc1')
+        out = PF.affine(obs, 256, name='fc1', w_init=XavierInitializer())
         out = F.relu(out)
-        out = PF.affine(out, 256, name='fc2')
+        out = PF.affine(out, 256, name='fc2', w_init=XavierInitializer())
         out = F.relu(out)
-        return PF.affine(out, 1, name='fc3')
+        return PF.affine(out, 1, name='fc3', w_init=XavierInitializer())
 
 
 # enforcing action bounds
@@ -99,7 +118,7 @@ def _squash_action(dist):
     diff = F.sum(F.log(1.0 - squashed_action ** 2 + 1e-6), axis=1,
                  keepdims=True)
     prob =  F.reshape(dist.prob(sampled_action), [-1, 1])
-    log_prob = F.log(prob) - diff
+    log_prob = F.log(prob + 1e-10) - diff
     return squashed_action, log_prob
 
 
@@ -297,8 +316,8 @@ def main(args):
         nn.load_parameters(args.load)
 
     model = SAC(env.observation_space.shape, action_shape[0], args.batch_size,
-                 args.critic_lr, args.actor_lr, args.value_lr, args.tau,
-                 args.gamma, args.policy_reg, args.reward_scale)
+                args.critic_lr, args.actor_lr, args.value_lr, args.tau,
+                args.gamma, args.policy_reg, args.reward_scale)
     model.sync_target()
 
     buffer = ReplayBuffer(args.buffer_size, args.batch_size)
