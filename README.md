@@ -27,7 +27,6 @@ If you use GPU, see [here](https://nnabla.readthedocs.io/en/latest/python/pip_in
 - [x] [Twin Delayed Deep Deterministic Policy Gradients (TD3)](https://arxiv.org/abs/1802.09477)
 - [x] [Soft Actor-Critic (SAC)](https://arxiv.org/abs/1801.01290)
 - [x] [SAC (learned temperature)](https://arxiv.org/abs/1812.05905)
-- [ ] [Temperature-automated SAC](https://arxiv.org/abs/1812.05905)
 - [ ] [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 - [ ] [Trust Region Policy Optimization (TRPO)](https://arxiv.org/abs/1502.05477)
 - [ ] [Actor-Critic with Experience Replay (ACER)](https://arxiv.org/abs/1611.01224)
