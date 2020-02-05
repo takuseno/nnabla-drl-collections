@@ -55,8 +55,8 @@ class SAC:
         self.ters_tp1 = nn.Variable((self.batch_size, 1))
 
         with nn.parameter_scope('trainable'):
-            self.temp = get_parameter_or_create('temp', [1, 1],
-                                                ConstantInitializer(1.0))
+            self.log_temp = get_parameter_or_create('temp', [1, 1],
+                                                    ConstantInitializer(0.0))
             dist_t = policy_network(self.obss_t, self.action_size, 'actor')
             dist_tp1 = policy_network(self.obss_tp1, self.action_size, 'actor')
             squashed_act_t, log_prob_t = _squash_action(dist_t)
@@ -72,7 +72,7 @@ class SAC:
 
         # q function loss
         q_tp1 = F.minimum2(q1_tp1, q2_tp1)
-        entropy_tp1 = self.temp * log_prob_tp1
+        entropy_tp1 = F.exp(self.log_temp) * log_prob_tp1
         mask = (1.0 - self.ters_tp1)
         q_target = self.rews_tp1 + self.gamma * (q_tp1 - entropy_tp1) * mask
         q_target.need_grad = False
@@ -82,13 +82,13 @@ class SAC:
 
         # policy function loss
         q_t = F.minimum2(q1_t_with_actor, q2_t_with_actor)
-        entropy_t = self.temp * log_prob_t
+        entropy_t = F.exp(self.log_temp) * log_prob_t
         self.actor_loss = F.mean(entropy_t - q_t)
 
         # temperature loss
         temp_target = log_prob_t - self.action_size
         temp_target.need_grad = False
-        self.temp_loss = -F.mean(self.temp * temp_target)
+        self.temp_loss = -F.mean(F.exp(self.log_temp) * temp_target)
 
         # trainable parameters
         with nn.parameter_scope('trainable'):
@@ -117,7 +117,7 @@ class SAC:
         self.actor_solver = S.Adam(self.actor_lr)
         self.actor_solver.set_parameters(actor_params)
         self.temp_solver = S.Adam(self.temp_lr)
-        self.temp_solver.set_parameters({'temp': self.temp})
+        self.temp_solver.set_parameters({'temp': self.log_temp})
 
     def infer(self, obs_t):
         self.infer_obs_t.d = np.array([obs_t])
