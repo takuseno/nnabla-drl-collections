@@ -46,6 +46,7 @@ class SAC:
             infer_dist = policy_network(self.infer_obs_t, self.action_size,
                                         'actor')
         self.infer_act_t, _ = _squash_action(infer_dist)
+        self.deterministic_act_t = infer_dist.mean()
 
         # training graph
         self.obss_t = nn.Variable((self.batch_size,) + self.obs_shape)
@@ -125,7 +126,9 @@ class SAC:
         return np.clip(self.infer_act_t.d[0], -1.0, 1.0)
 
     def evaluate(self, obs_t):
-        return self.infer(obs_t)
+        self.infer_obs_t.d = np.array([obs_t])
+        self.deterministic_act_t.forward(clear_buffer=True)
+        return np.clip(self.deterministic_act_t.d[0], -1.0, 1.0)
 
     def train_actor(self, obss_t):
         self.obss_t.d = np.array(obss_t)
