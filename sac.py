@@ -10,57 +10,11 @@ import gym
 
 from nnabla.ext_utils import get_extension_context
 from nnabla.initializer import BaseInitializer
+from common.distribution import Normal
 from common.buffer import ReplayBuffer
 from common.log import prepare_monitor
 from common.experiment import evaluate, train
 from common.exploration import EmptyNoise
-
-
-LOGPROBC = -0.5 * math.log(2 * math.pi)
-
-class MultivariateNormal:
-    def __init__(self, loc, scale):
-        assert loc.shape == scale.shape,\
-            'For now, loc and scale must have same shape.'
-        if isinstance(loc, np.ndarray):
-            loc = nn.Variable.from_numpy_array(loc)
-            loc.persistent = True
-        if isinstance(scale, np.ndarray):
-            scale = nn.Variable.from_numpy_array(scale)
-            scale.persistent = True
-        self.loc = loc
-        self.scale = scale
-
-    def mean(self):
-        # to avoid no parent error
-        return F.identity(self.loc)
-
-    def stddev(self):
-        # to avoid no parent error
-        return F.identity(self.scale)
-
-    @property
-    def d(self):
-        return self.scale.shape[-1]
-
-    def log_prob(self, x):
-        m = F.batch_matmul(F.batch_inv(self._diag_scale()),
-                           F.reshape(x - self.loc, self.loc.shape + (1,)))
-        m = F.reshape(F.batch_matmul(m, m, True), (x.shape[0], 1))
-        logz = LOGPROBC * self.d - self._logdet_scale()
-        return logz - 0.5 * m
-
-    def _logdet_scale(self):
-        return F.sum(F.log(self.scale), axis=1, keepdims=True)
-
-    def _diag_scale(self):
-        return F.matrix_diag(self.scale)
-
-    def sample(self, shape=None):
-        if shape is None:
-            shape = self.loc.shape
-        eps = F.randn(mu=0.0, sigma=1.0, shape=shape)
-        return self.mean() + self.scale * eps
 
 
 def q_network(obs, action, name):
@@ -82,7 +36,7 @@ def policy_network(obs, action_size, name):
         mean = PF.affine(out, action_size, name='mean')
         logstd = PF.affine(out, action_size, name='logstd')
         clipped_logstd = F.clip_by_value(logstd, -20, 2)
-    return MultivariateNormal(mean, F.exp(clipped_logstd * 2.0))
+    return Normal(mean, F.exp(clipped_logstd * 2.0))
 
 
 def v_network(obs, name):
@@ -97,11 +51,10 @@ def v_network(obs, name):
 # enforcing action bounds
 # https://math.stackexchange.com/questions/3108216/change-of-variables-apply-tanh-to-the-gaussian-samples
 def _squash_action(dist):
-    sampled_action = dist.sample()
-    squashed_action = F.tanh(sampled_action)
-    diff = F.sum(F.log(1.0 - squashed_action ** 2 + 1e-6), axis=1,
-                 keepdims=True)
-    log_prob = dist.log_prob(sampled_action) - diff
+    raw_action = dist.sample()
+    squashed_action = F.tanh(raw_action)
+    jacob = 2.0 * (math.log(2.0) - raw_action - F.softplus(-2.0 * raw_action))
+    log_prob = F.sum(dist.log_prob(raw_action) - jacob, axis=1, keepdims=True)
     return squashed_action, log_prob
 
 
