@@ -122,7 +122,7 @@ class SAC:
     def infer(self, obs_t):
         self.infer_obs_t.d = np.array([obs_t])
         self.infer_act_t.forward(clear_buffer=True)
-        return self.infer_act_t.d[0]
+        return np.clip(self.infer_act_t.d[0], -1.0, 1.0)
 
     def evaluate(self, obs_t):
         return self.infer(obs_t)
