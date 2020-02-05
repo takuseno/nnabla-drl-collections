@@ -16,6 +16,8 @@ from common.experiment import evaluate, train
 from common.exploration import EmptyNoise
 
 
+LOGPROBC = -0.5 * math.log(2 * math.pi)
+
 class MultivariateNormal:
     def __init__(self, loc, scale):
         assert loc.shape == scale.shape,\
@@ -41,21 +43,15 @@ class MultivariateNormal:
     def d(self):
         return self.scale.shape[-1]
 
-    def variance(self):
-        diag = self._diag_scale()
-        return F.batch_matmul(diag, diag, False, True)
+    def log_prob(self, x):
+        m = F.batch_matmul(F.batch_inv(self._diag_scale()),
+                           F.reshape(x - self.loc, self.loc.shape + (1,)))
+        m = F.reshape(F.batch_matmul(m, m, True), (x.shape[0], 1))
+        logz = LOGPROBC * self.d - self._logdet_scale()
+        return logz - 0.5 * m
 
-    def prob(self, x):
-        k = self.loc.shape[1]
-        diff = F.reshape(x - self.mean(), self.loc.shape + (1,))
-        y = F.batch_matmul(F.batch_inv(self._diag_scale()), diff, False)
-        Z = (2 * np.pi) ** (0.5 * k) * F.abs(F.batch_det(self._diag_scale()))
-        norm = F.pow_scalar(F.sum(y ** 2, axis=[1, 2]), 0.5)
-        return F.exp(-0.5 * norm) / Z
-
-    def entropy(self):
-        det = F.batch_det(2.0 * np.pi * np.e * self._diag_scale())
-        return 0.5 * F.log(det)
+    def _logdet_scale(self):
+        return F.sum(F.log(self.scale), axis=1, keepdims=True)
 
     def _diag_scale(self):
         return F.matrix_diag(self.scale)
@@ -67,47 +63,35 @@ class MultivariateNormal:
         return self.mean() + self.scale * eps
 
 
-class XavierInitializer(BaseInitializer):
-    def __init__(self, rng=None):
-        if rng is None:
-            rng = random.prng
-        self.rng = rng
-
-    def __call__(self, shape):
-        var = 1.0 / shape[0]
-        return self.rng.randn(*shape) * var
-
-
 def q_network(obs, action, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 256, name='fc1', w_init=XavierInitializer())
+        out = PF.affine(obs, 256, name='fc1')
         out = F.relu(out)
         out = F.concatenate(out, action, axis=1)
-        out = PF.affine(out, 256, name='fc2', w_init=XavierInitializer())
+        out = PF.affine(out, 256, name='fc2')
         out = F.relu(out)
-        return PF.affine(out, 1, name='fc3', w_init=XavierInitializer())
+        return PF.affine(out, 1, name='fc3')
 
 
 def policy_network(obs, action_size, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 256, name='fc1', w_init=XavierInitializer())
+        out = PF.affine(obs, 256, name='fc1')
         out = F.relu(out)
-        out = PF.affine(out, 256, name='fc2', w_init=XavierInitializer())
+        out = PF.affine(out, 256, name='fc2')
         out = F.relu(out)
-        mean = PF.affine(out, action_size, name='mean',
-                         w_init=XavierInitializer())
-        logstd = PF.affine(out, action_size, name='logstd',
-                           w_init=XavierInitializer())
-    return MultivariateNormal(mean, F.exp(logstd))
+        mean = PF.affine(out, action_size, name='mean')
+        logstd = PF.affine(out, action_size, name='logstd')
+        clipped_logstd = F.clip_by_value(logstd, -20, 2)
+    return MultivariateNormal(mean, F.exp(clipped_logstd * 2.0))
 
 
 def v_network(obs, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 256, name='fc1', w_init=XavierInitializer())
+        out = PF.affine(obs, 256, name='fc1')
         out = F.relu(out)
-        out = PF.affine(out, 256, name='fc2', w_init=XavierInitializer())
+        out = PF.affine(out, 256, name='fc2')
         out = F.relu(out)
-        return PF.affine(out, 1, name='fc3', w_init=XavierInitializer())
+        return PF.affine(out, 1, name='fc3')
 
 
 # enforcing action bounds
@@ -117,8 +101,7 @@ def _squash_action(dist):
     squashed_action = F.tanh(sampled_action)
     diff = F.sum(F.log(1.0 - squashed_action ** 2 + 1e-6), axis=1,
                  keepdims=True)
-    prob =  F.reshape(dist.prob(sampled_action), [-1, 1])
-    log_prob = F.log(prob + 1e-10) - diff
+    log_prob = dist.log_prob(sampled_action) - diff
     return squashed_action, log_prob
 
 
