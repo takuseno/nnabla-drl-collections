@@ -102,3 +102,24 @@ class AtariWrapper:
 
     def render(self):
         self.env.render()
+
+
+class BatchEnv:
+    def __init__(self, envs):
+        self.envs = envs
+
+    def step(self, actions):
+        obs_list = []
+        rew_list = []
+        ter_list = []
+        for env, action in zip(self.envs, actions):
+            obs, rew, done, _ = env.step(action)
+            if done:
+                obs = env.reset()
+            obs_list.append(obs)
+            rew_list.append(rew)
+            ter_list.append(1.0 if done else 0.0)
+        return np.array(obs_list), np.array(rew_list), np.array(ter_list), {}
+
+    def reset(self):
+        return np.array([env.reset() for env in self.envs])

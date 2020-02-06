@@ -14,7 +14,7 @@ from nnabla.monitor import Monitor, MonitorSeries
 from nnabla.ext_utils import get_extension_context
 from common.log import prepare_directory
 from common.experiment import evaluate
-from common.env import AtariWrapper
+from common.env import AtariWrapper, BatchEnv
 from dqn import pixel_to_float
 
 
@@ -111,28 +111,6 @@ class A2C:
         self.solver.set_learning_rate(self.lr_scheduler(step))
         self.solver.update()
         return pi_loss, v_loss
-#-----------------------------------------------------------------------------#
-
-#------------------------ environment wrapper --------------------------------#
-class BatchEnv:
-    def __init__(self, envs):
-        self.envs = envs
-
-    def step(self, actions):
-        obs_list = []
-        rew_list = []
-        ter_list = []
-        for env, action in zip(self.envs, actions):
-            obs, rew, done, _ = env.step(action)
-            if done:
-                obs = env.reset()
-            obs_list.append(obs)
-            rew_list.append(rew)
-            ter_list.append(1.0 if done else 0.0)
-        return np.array(obs_list), np.array(rew_list), np.array(ter_list), {}
-
-    def reset(self):
-        return np.array([env.reset() for env in self.envs])
 #-----------------------------------------------------------------------------#
 
 #-------------------------- training loop ------------------------------------#
