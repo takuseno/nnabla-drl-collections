@@ -78,6 +78,9 @@ class Normal:
         var = self.variance()
         return LOGPROBC - F.log(self.scale) - 0.5 * (x - self.loc) ** 2 / var
 
+    def entropy(self):
+        return F.log(self.stddev()) + 0.5 * np.log(2.0 * np.pi * np.e)
+
     def sample(self, shape=None):
         if shape is None:
             shape = self.loc.shape
