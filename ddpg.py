@@ -11,6 +11,7 @@ from common.buffer import ReplayBuffer
 from common.log import prepare_monitor
 from common.experiment import evaluate, train
 from common.exploration import OrnsteinUhlenbeckActionNoise
+from common.helper import set_seed
 
 
 def q_network(obs, action, name):
@@ -183,6 +184,8 @@ def main(args):
     eval_env = gym.make(args.env)
     eval_env.seed(50)
     action_shape = env.action_space.shape
+
+    set_seed(args.seed)
 
     # GPU
     if args.gpu:
