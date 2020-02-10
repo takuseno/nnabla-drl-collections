@@ -1,2 +1,2 @@
-gym[atari]==0.15.6
+gym[atari]==0.11.0
 opencv-python==3.3.0.9
