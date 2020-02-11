@@ -16,10 +16,10 @@ from common.exploration import NormalNoise
 
 def q_network(obs, action, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 400, name='fc1')
+        out = F.concatenate(obs, action, axis=1)
+        out = PF.affine(out, 256, name='fc1')
         out = F.relu(out)
-        out = F.concatenate(out, action, axis=1)
-        out = PF.affine(out, 300, name='fc2')
+        out = PF.affine(out, 256, name='fc2')
         out = F.relu(out)
         out = PF.affine(out, 1, name='fc3')
     return out
@@ -27,9 +27,9 @@ def q_network(obs, action, name):
 
 def policy_network(obs, action_size, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 400, name='fc1')
+        out = PF.affine(obs, 256, name='fc1')
         out = F.relu(out)
-        out = PF.affine(out, 300, name='fc2')
+        out = PF.affine(out, 256, name='fc2')
         out = F.relu(out)
         out = PF.affine(out, action_size, name='fc3')
     return F.tanh(out)
@@ -245,7 +245,7 @@ if __name__ == '__main__':
     parser.add_argument('--logdir', type=str, default='td3')
     parser.add_argument('--env', type=str, default='Pendulum-v0')
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--batch-size', type=int, default=100)
+    parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--critic-lr', type=float, default=1e-3)
     parser.add_argument('--actor-lr', type=float, default=1e-3)
     parser.add_argument('--tau', type=float, default=5e-3)
@@ -254,7 +254,7 @@ if __name__ == '__main__':
     parser.add_argument('--target-reg-clip', type=float, default=0.5)
     parser.add_argument('--exploration-sigma', type=float, default=0.1)
     parser.add_argument('--update-actor-freq', type=int, default=2)
-    parser.add_argument('--buffer-size', type=int, default=10 ** 5)
+    parser.add_argument('--buffer-size', type=int, default=10 ** 6)
     parser.add_argument('--final-step', type=int, default=10 ** 6)
     parser.add_argument('--save-interval', type=int, default=10 ** 5)
     parser.add_argument('--evaluate-interval', type=int, default=10 ** 5)
