@@ -19,9 +19,9 @@ from common.exploration import EmptyNoise
 
 def q_network(obs, action, name):
     with nn.parameter_scope(name):
-        out = PF.affine(obs, 256, name='fc1')
+        out = F.concatenate(obs, action, axis=1)
+        out = PF.affine(out, 256, name='fc1')
         out = F.relu(out)
-        out = F.concatenate(out, action, axis=1)
         out = PF.affine(out, 256, name='fc2')
         out = F.relu(out)
         return PF.affine(out, 1, name='fc3')
