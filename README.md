@@ -1,6 +1,5 @@
 # NNabla DRL Collections
-Single file deep reinforcement learning implementations with NNabla.
-All algorithms are written in 300 lines.
+Deep reinforcement learning implementations with NNabla.
 
 ## install
 ```
